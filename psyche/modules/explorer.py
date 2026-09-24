@@ -5,10 +5,16 @@ from ..proposal import Proposal
 
 
 class Explorer(Module):
-    """Pousse à explorer quand curiosité et énergie sont hautes."""
+    """Pousse à explorer quand curiosité et énergie sont hautes.
+    Gagner le workspace satisfait la curiosité (consommation)."""
     name = "exploration"
     ideas = ["observer l'heure", "examiner la mémoire vive",
              "se demander ce que fait l'utilisateur", "revoir un souvenir"]
 
     def propose(self, h):
         return Proposal(self.name, random.choice(self.ideas), h.curiosite * h.energie)
+
+    def receive(self, broadcast, h):
+        super().receive(broadcast, h)
+        if broadcast.source == self.name:
+            h.satisfy_curiosity()

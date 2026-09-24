@@ -5,14 +5,15 @@ Question : qui pilote le choix du gagnant ?
   - la SAILLANCE (donc les jauges hormonales), comme voulu ?
   - ou l'INHIBITION DE RETOUR, qui impose une simple rotation ?
 
-On lance la vraie boucle du package (sans pause ni affichage) pour plusieurs
-niveaux d'inhibition, et on mesure :
+On lance la vraie boucle du package dans un monde SIMULÉ (FakeEnvironment),
+pour que les résultats soient identiques sur toutes les machines.
+
+Mesures :
   M1  accord saillance : % de cycles où le gagnant est la proposition
       de saillance brute la plus élevée (100 % = la saillance décide seule)
   M2  victoires "à vide" : % de victoires avec une saillance brute < 0.05
-      (un module qui ne veut rien obtient quand même l'attention)
-  M3  prévisibilité : % de cycles où le gagnant est celui qui a gagné
-      le moins récemment (proche de 100 % = tour de rôle mécanique)
+  M3  tour de rôle : % de cycles où le gagnant est le module présent
+      qui a gagné le moins récemment (élevé = rotation mécanique)
   + répartition des gagnants par module
 """
 import random
@@ -25,39 +26,34 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from psyche import Hormones, GlobalWorkspace                      # noqa: E402
-from psyche.modules import SystemSensor, Explorer, Social, Metacognition  # noqa: E402
+from psyche import FakeEnvironment, build, step  # noqa: E402
 
 LEVELS = [0.0, 0.15, 0.5]
 CYCLES = 1000
 SEEDS = [0, 1, 2]
+NAMES = ["capteur_systeme", "exploration", "social", "metacognition", "utilisateur"]
 
 
 def simulate(inhibition, cycles, seed):
     random.seed(seed)
-    h = Hormones()
-    ws = GlobalWorkspace(inhibition=inhibition)
-    modules = [SystemSensor(), Explorer(), Social(), Metacognition(ws)]
-    names = [m.name for m in modules]
-    last_win = {n: -1 for n in names}
+    env = FakeEnvironment(seed=seed)
+    h, ws, user, modules = build(env)
+    ws.inhibition = inhibition
+    last_win = {n: -1 for n in NAMES}
     rows = []
     for t in range(cycles):
-        props = [p for p in (m.propose(h) for m in modules) if p is not None]
-        winner = ws.compete(props)
+        winner, props = step(env, h, ws, user, modules)
+        env.tick()
         if winner is None:
             continue
         best = max(props, key=lambda p: p.salience)
-        # module présent ce cycle ayant gagné le moins récemment
-        present = {p.source for p in props}
+        present = [n for n in NAMES if n in {p.source for p in props}]
         oldest = min(present, key=lambda n: last_win[n])
         rows.append(dict(t=t, winner=winner.source, sal=winner.salience,
                          agree=winner.source == best.source,
                          oldest=winner.source == oldest,
-                         cur=h.curiosite, att=h.attachement))
+                         E=h.energie, C=h.curiosite, A=h.attachement))
         last_win[winner.source] = t
-        for m in modules:
-            m.receive(winner)
-        h.update(ws)
     return rows
 
 
@@ -77,48 +73,55 @@ if __name__ == "__main__":
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    results = {}
-    example = {}
+    results, example = {}, {}
     for lv in LEVELS:
         runs = [simulate(lv, CYCLES, s) for s in SEEDS]
         example[lv] = runs[0]
-        allrows = [r for run in runs for r in run]
-        results[lv] = summarize(allrows)
+        results[lv] = summarize([r for run in runs for r in run])
 
-    names = ["capteur_systeme", "exploration", "social", "metacognition"]
-    print(f"{CYCLES} cycles x {len(SEEDS)} graines par niveau\n")
+    print(f"{CYCLES} cycles x {len(SEEDS)} graines par niveau (environnement simulé)\n")
     print(f"{'inhibition':>10} | {'M1 accord':>9} | {'M2 à vide':>9} | {'M3 rotation':>11} | répartition")
     for lv, r in results.items():
-        dist = "  ".join(f"{k[:5]}={100*r['dist'][k]/r['n']:4.1f}%" for k in names)
+        dist = "  ".join(f"{k[:5]}={100*r['dist'][k]/r['n']:4.1f}%" for k in NAMES)
         print(f"{lv:>10.2f} | {r['agree']:8.1f}% | {r['empty']:8.1f}% | {r['rota']:10.1f}% | {dist}")
 
-    fig, ax = plt.subplots(1, 3, figsize=(15, 4.5))
-
+    fig = plt.figure(figsize=(15, 8))
+    gs = fig.add_gridspec(2, 2)
     x = np.arange(len(LEVELS))
+
+    a = fig.add_subplot(gs[0, 0])
     for i, (key, lab) in enumerate([("agree", "M1 accord saillance"),
                                     ("empty", "M2 victoires à vide"),
                                     ("rota", "M3 tour de rôle")]):
-        ax[0].bar(x + (i - 1) * 0.27, [results[lv][key] for lv in LEVELS], 0.27, label=lab)
-    ax[0].set_xticks(x, [str(lv) for lv in LEVELS])
-    ax[0].set(title="Qui décide ?", xlabel="inhibition", ylabel="% des cycles", ylim=(0, 105))
-    ax[0].legend()
+        a.bar(x + (i - 1) * 0.27, [results[lv][key] for lv in LEVELS], 0.27, label=lab)
+    a.set_xticks(x, [str(lv) for lv in LEVELS])
+    a.set(title="Qui décide ?", xlabel="inhibition", ylabel="% des cycles", ylim=(0, 105))
+    a.legend()
 
+    a = fig.add_subplot(gs[0, 1])
     bottom = np.zeros(len(LEVELS))
-    for k in names:
+    for k in NAMES:
         vals = np.array([100 * results[lv]["dist"][k] / results[lv]["n"] for lv in LEVELS])
-        ax[1].bar(x, vals, bottom=bottom, label=k)
+        a.bar(x, vals, bottom=bottom, label=k)
         bottom += vals
-    ax[1].set_xticks(x, [str(lv) for lv in LEVELS])
-    ax[1].set(title="Répartition des gagnants", xlabel="inhibition", ylabel="%")
-    ax[1].legend(fontsize=8)
+    a.set_xticks(x, [str(lv) for lv in LEVELS])
+    a.set(title="Répartition des gagnants", xlabel="inhibition", ylabel="%")
+    a.legend(fontsize=8, loc="upper right")
 
-    run = example[0.5][:80]
-    ypos = {n: i for i, n in enumerate(names)}
-    ax[2].scatter([r["t"] for r in run], [ypos[r["winner"]] for r in run],
-                  c=[r["sal"] for r in run], cmap="viridis", vmin=0, vmax=1, s=25)
-    ax[2].set_yticks(range(len(names)), names)
-    ax[2].set(title="80 premiers cycles, inhibition 0.5\n(couleur = saillance du gagnant)",
-              xlabel="cycle")
+    # Les jauges pilotent-elles le comportement ? (inhibition 0.15, 300 cycles)
+    a = fig.add_subplot(gs[1, :])
+    run = example[0.15][:300]
+    ts = [r["t"] for r in run]
+    for key, lab in [("E", "énergie"), ("C", "curiosité"), ("A", "attachement")]:
+        a.plot(ts, [r[key] for r in run], label=lab)
+    for name, y, c in [("exploration", -0.08, "tab:orange"),
+                       ("utilisateur", -0.16, "tab:purple"),
+                       ("social", -0.24, "tab:green")]:
+        tw = [r["t"] for r in run if r["winner"] == name]
+        a.scatter(tw, [y] * len(tw), marker="|", s=80, color=c, label=f"victoire {name}")
+    a.set(title="Jauges et victoires (inhibition 0.15, 300 premiers cycles)",
+          xlabel="cycle", ylim=(-0.3, 1.05))
+    a.legend(ncol=6, fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.15))
 
     fig.tight_layout()
     out = Path(__file__).with_name("inhibition_results.png")

@@ -8,4 +8,4 @@ class Social(Module):
 
     def propose(self, h):
         return Proposal(self.name, "l'utilisateur ne m'a pas parlé",
-                        0.6 * (1 - h.attachement))
+                        0.5 * (1 - h.attachement))

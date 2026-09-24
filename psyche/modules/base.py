@@ -8,6 +8,7 @@ class Module:
     def propose(self, h):
         raise NotImplementedError
 
-    def receive(self, broadcast):
-        """Réentrance : chaque module voit le contenu conscient."""
+    def receive(self, broadcast, h):
+        """Réentrance : chaque module voit le contenu conscient.
+        `h` permet à un module de satisfaire une pulsion quand il gagne."""
         self.last_broadcast = broadcast

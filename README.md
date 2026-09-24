@@ -116,9 +116,11 @@ Le script affiche un résumé dans la console et génère `ignition_results.png`
 Il s'agit d'une première version orientée comportement, qui fonctionne en boucle continue. Elle comporte :
 
 - une compétition entre modules, recalculée à chaque cycle ;
-- une **inhibition de retour**, qui pénalise un contenu ou un module ayant gagné récemment pour empêcher la monopolisation du workspace ;
-- des jauges homéostatiques : l'énergie (liée à la batterie via `psutil`), la curiosité (qui monte quand les pensées se répètent) et l'attachement ;
-- une métacognition qui observe l'historique des autres modules, sans jamais réfléchir sur ses propres sorties, pour éviter une récursion infinie.
+- une **inhibition de retour** faible et décroissante, qui départage des propositions proches sans imposer de rotation ;
+- des jauges modélisées comme des **pulsions** : l'énergie (batterie), la curiosité (satisfaite par l'exploration) et l'attachement (qui ne remonte que si tu écris) ;
+- un **canal utilisateur** : tape un message puis Entrée pendant que le programme tourne (Linux et macOS) ;
+- un `Environment` injectable, qui permet de remplacer le vrai monde par un monde simulé et reproductible ;
+- une métacognition qui observe l'historique des autres modules, sans jamais réfléchir sur ses propres sorties, et qui s'habitue à ses propres observations.
 
 ⚠️ Ce prototype contient encore des phrases écrites à la main (« mon attention est dominée par… »). Il sert à explorer l'architecture, **pas** à produire des mesures. Les expériences, elles, s'appuient sur des dynamiques émergentes.
 
@@ -140,23 +142,49 @@ On lance la vraie boucle du package pendant 1 000 cycles, avec 3 graines, pour t
 
 - **M1, accord saillance** : le gagnant est-il la proposition la plus saillante ?
 - **M2, victoires à vide** : un module gagne-t-il avec une saillance inférieure à 0,05 ?
-- **M3, tour de rôle** : le gagnant est-il le module qui a gagné le moins récemment ?
+- **M3, tour de rôle** : le gagnant est-il le module qui a gagné le moins récemment ? Avec 4 ou 5 modules en compétition, le hasard seul donne environ 20 à 25 %.
 
-![Résultats du diagnostic d'inhibition](diagnostics/01_inhibition/inhibition_results.png)
+### v0 : avant corrections
+
+![Diagnostic v0](diagnostics/01_inhibition/inhibition_results_v0.png)
 
 | Inhibition | M1 accord | M2 à vide | M3 rotation | Constat |
 |---|---|---|---|---|
-| 0.0 | 98 % | 0 % | 0 % | La métacognition monopolise 84 % des cycles |
-| 0.15 | 58 % | 0 % | 2 % | Social et métacognition occupent 94 % des cycles |
-| 0.5 (actuel) | 40 % | 21 % | 69 % | Tour de rôle : répartition quasi uniforme |
+| 0.0 | 98 % | 0 % | 0 % | Un module monopolise le workspace (84 à 95 %) |
+| 0.5 (réglage v0) | 40 % | 21 % | 69 % | Tour de rôle : répartition quasi uniforme |
 
-**Conclusions :**
+Problèmes identifiés :
 
-1. Le réglage actuel (0.5) produit surtout une rotation mécanique. Un cinquième des victoires vont à des modules qui ne proposent rien.
-2. Sans inhibition, le bug du plan initial revient : la métacognition, dont la saillance est structurellement élevée, monopolise le workspace.
-3. À 0.15, la saillance décide de nouveau, mais les jauges s'effondrent (curiosité → 0, attachement → 0). Les modules `exploration` et `capteur_systeme` sont alors presque absents.
+1. **Non-reproductibilité** : les modules lisaient `psutil` directement. Sans inhibition, le monopole revenait à la métacognition sur une machine sans batterie, et à l'exploration sur un portable branché.
+2. **Rotation mécanique** : une inhibition forte et constante sur 4 cycles écrasait les différences de saillance. Un cinquième des victoires allaient à des modules qui ne proposaient rien.
+3. **Jauges mortes** : l'ennui était mesuré par la répétition des contenus, que l'inhibition empêchait justement. La curiosité tombait donc à 0 sans jamais remonter. L'attachement, lui, ne pouvait que baisser.
+4. **Métacognition trop saillante** (0,4 à 0,8) et sans habituation : elle répétait la même observation indéfiniment.
 
-Le problème ne se règle donc pas avec l'inhibition seule. Il faut aussi corriger la dynamique des jauges et la saillance de la métacognition.
+### Corrections (v1)
+
+| Problème | Correction |
+|---|---|
+| 1 | `Environment` injectable : `psutil` et stdin pour le vrai monde, `FakeEnvironment` (batterie, CPU et utilisateur simulés, graine fixée) pour les tests. Les départages se font sans itérer sur des `set`. |
+| 2 | Inhibition à 0,15, qui décroît de moitié à chaque cycle |
+| 3 | Jauges modélisées comme des pulsions : la curiosité monte en continu (plus vite en cas d'ennui) et est **satisfaite** quand l'exploration gagne. Ajout d'un canal utilisateur, seul moyen de faire remonter l'attachement. |
+| 4 | Saillance réduite (0,1 à 0,5) et **habituation** : une observation déjà diffusée perd 70 % de sa saillance tant qu'elle ne change pas |
+
+### v1 : après corrections
+
+![Diagnostic v1](diagnostics/01_inhibition/inhibition_results.png)
+
+| Inhibition | M1 accord | M2 à vide | M3 rotation | Constat |
+|---|---|---|---|---|
+| 0.0 | 83 % | 0 % | 5 % | Le capteur, saillance de fond, gagne quand rien d'autre n'est en jeu |
+| **0.15 (v1)** | 55 % | 1,6 % | 22 % | Rotation au niveau du hasard, tous les modules ont une place |
+| 0.5 | 43 % | 20 % | 48 % | La rotation mécanique réapparaît |
+
+Le graphique du bas montre que **les jauges pilotent maintenant le comportement** :
+
+- la curiosité suit un cycle en dents de scie (elle monte, l'exploration gagne, la pulsion est satisfaite, elle remonte) ;
+- les victoires de `social` sont denses quand l'attachement est bas, et s'espacent après chaque message de l'utilisateur.
+
+Les résultats sont identiques sur toutes les machines. C'est vérifié en relançant le script avec des valeurs différentes de `PYTHONHASHSEED`.
 
 ```bash
 cd diagnostics/01_inhibition
@@ -172,6 +200,7 @@ python inhibition_ablation.py
 - [ ] **Exp. 3** : Complexité perturbationnelle. On perturbe le système et on mesure la complexité de sa réponse, sur le modèle de l'indice PCI utilisé en clinique (Casali et al., 2013).
 - [ ] **Exp. 4** : Métacognition non scriptée. Le système parie sur la justesse de ses propres réponses (*confidence judgments*), et on évalue si ses paris sont bien calibrés.
 - [ ] **Mémoire épisodique** : stockage des contenus diffusés dans SQLite avec embeddings, et rappel par similarité.
+- [x] **Diagnostic 1** : ablation de l'inhibition, puis corrections v1
 - [ ] **Logs structurés** au format JSONL : pour chaque cycle, le gagnant, les perdants et l'état des jauges.
 - [ ] **Grille d'indicateurs** : évaluer l'architecture point par point avec les indicateurs GWT de Butlin et al. (2023).
 
@@ -203,7 +232,8 @@ python inhibition_ablation.py
 ├── diagnostics/             # Tests du prototype psyche
 │   └── 01_inhibition/
 │       ├── inhibition_ablation.py
-│       └── inhibition_results.png
+│       ├── inhibition_results.png
+│       └── inhibition_results_v0.png
 ├── experiments/             # Expériences (une par dossier)
 │   └── 01_ignition/
 │       ├── ignition.py
@@ -211,16 +241,18 @@ python inhibition_ablation.py
 └── psyche/                  # Prototype comportemental
     ├── __init__.py
     ├── __main__.py          # python -m psyche
-    ├── loop.py              # boucle : proposer → compétition → broadcast
+    ├── loop.py              # boucle : percevoir → proposer → compétition → broadcast
+    ├── environment.py       # Environment (réel) / FakeEnvironment (tests)
     ├── proposal.py          # Proposal (contenu + saillance)
-    ├── workspace.py         # GlobalWorkspace (goulot + inhibition de retour)
-    ├── hormones.py          # Hormones (énergie, curiosité, attachement)
+    ├── workspace.py         # GlobalWorkspace (goulot + inhibition décroissante)
+    ├── hormones.py          # Hormones (pulsions : énergie, curiosité, attachement)
     └── modules/
         ├── base.py          # Module (classe de base)
         ├── system_sensor.py # SystemSensor
         ├── explorer.py      # Explorer
         ├── social.py        # Social
-        └── metacognition.py # Metacognition
+        ├── metacognition.py # Metacognition
+        └── user_input.py    # UserInput
 ```
 
 ## Licence
