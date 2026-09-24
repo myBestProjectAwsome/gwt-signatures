@@ -20,6 +20,18 @@ La démarche suit celle du rapport de Butlin, Long, Bengio et al. (2023) :
 
 Un système qui affiche « je remarque mes pensées » parce que cette phrase est écrite dans son code ne prouve rien. C'est le *gaming problem* décrit par Jonathan Birch. Toutes les signatures étudiées ici doivent donc **émerger de la dynamique** du système. Aucune ne doit être codée en dur.
 
+## Installation
+
+```bash
+git clone <url-du-depot>
+cd psyche
+python3 -m venv .venv
+source .venv/bin/activate        # Windows : .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+Toutes les commandes ci-dessous supposent que l'environnement virtuel est activé.
+
 ---
 
 ## Expérience 1 : Ignition globale
@@ -89,7 +101,6 @@ Un bruit gaussien (σ = 0.08) est ajouté à chaque pas. Sans lui, chaque essai 
 ### Lancer l'expérience
 
 ```bash
-pip install -r requirements.txt
 cd experiments/01_ignition
 python ignition.py
 ```
@@ -113,6 +124,43 @@ Il s'agit d'une première version orientée comportement, qui fonctionne en bouc
 
 ```bash
 python -m psyche   # Ctrl+C pour arrêter
+```
+
+---
+
+## Diagnostic 1 : Ablation de l'inhibition de retour
+
+**Dossier :** [`diagnostics/01_inhibition/`](diagnostics/01_inhibition/)
+
+Les diagnostics testent le prototype `psyche`, alors que les expériences testent des prédictions de la GWT.
+
+**Question :** dans le prototype, le gagnant est-il choisi par la saillance (et donc par les jauges), ou par l'inhibition de retour, qui impose une rotation ?
+
+On lance la vraie boucle du package pendant 1 000 cycles, avec 3 graines, pour trois niveaux d'inhibition. On mesure trois indicateurs :
+
+- **M1, accord saillance** : le gagnant est-il la proposition la plus saillante ?
+- **M2, victoires à vide** : un module gagne-t-il avec une saillance inférieure à 0,05 ?
+- **M3, tour de rôle** : le gagnant est-il le module qui a gagné le moins récemment ?
+
+![Résultats du diagnostic d'inhibition](diagnostics/01_inhibition/inhibition_results.png)
+
+| Inhibition | M1 accord | M2 à vide | M3 rotation | Constat |
+|---|---|---|---|---|
+| 0.0 | 98 % | 0 % | 0 % | La métacognition monopolise 84 % des cycles |
+| 0.15 | 58 % | 0 % | 2 % | Social et métacognition occupent 94 % des cycles |
+| 0.5 (actuel) | 40 % | 21 % | 69 % | Tour de rôle : répartition quasi uniforme |
+
+**Conclusions :**
+
+1. Le réglage actuel (0.5) produit surtout une rotation mécanique. Un cinquième des victoires vont à des modules qui ne proposent rien.
+2. Sans inhibition, le bug du plan initial revient : la métacognition, dont la saillance est structurellement élevée, monopolise le workspace.
+3. À 0.15, la saillance décide de nouveau, mais les jauges s'effondrent (curiosité → 0, attachement → 0). Les modules `exploration` et `capteur_systeme` sont alors presque absents.
+
+Le problème ne se règle donc pas avec l'inhibition seule. Il faut aussi corriger la dynamique des jauges et la saillance de la métacognition.
+
+```bash
+cd diagnostics/01_inhibition
+python inhibition_ablation.py
 ```
 
 ---
@@ -149,8 +197,13 @@ python -m psyche   # Ctrl+C pour arrêter
 ```
 .
 ├── README.md
+├── .gitignore
 ├── LICENSE
 ├── requirements.txt
+├── diagnostics/             # Tests du prototype psyche
+│   └── 01_inhibition/
+│       ├── inhibition_ablation.py
+│       └── inhibition_results.png
 ├── experiments/             # Expériences (une par dossier)
 │   └── 01_ignition/
 │       ├── ignition.py
