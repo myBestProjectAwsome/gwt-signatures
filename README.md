@@ -407,7 +407,7 @@ S3 se lit ainsi : le modèle imagine *h* actions à partir de l'état actuel, **
 
 ```bash
 python -m mini_iag.train                                     # entraîner (si pas déjà fait)
-python diagnostics/04_iag_training/training_check.py --quick # sans ablations, ~20 s
+python diagnostics/04_iag_training/training_check.py --quick # sans ablations ni figure, ~20 s
 python diagnostics/04_iag_training/training_check.py         # avec ablations, quelques minutes
 ```
 

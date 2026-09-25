@@ -20,7 +20,7 @@ Mesures (cartes de test, graine 1) :
   S4  workspace : attention sur le contenu signalé parmi 8 (hasard 0.125) et
       case retrouvée par une lecture qui ne voit que les slots
 
-Options : --quick (sans les ablations, ~20 s), sinon quelques minutes.
+Options : --quick (sans les ablations ni figure, ~20 s), sinon quelques minutes.
           --replot (redessine la figure depuis training_results.json).
 """
 import argparse
@@ -196,7 +196,10 @@ if __name__ == "__main__":
     for n, r in ws.items():
         print(f"   {n:16} attention {r['attention']:.3f}   case retrouvée {100 * r['cell_acc']:.1f} %")
 
-    if not args.quick:
+    if args.quick:
+        # la figure du README contient les ablations : --quick ne doit pas l'écraser
+        print("\n(--quick : figure non régénérée ; lancer sans --quick pour la mettre à jour)")
+    else:
         saved.write_text(json.dumps({"world": results, "workspace": ws}, indent=1))
-    figure(results, ws, out)
-    print(f"\nFigure : {out.name}")
+        figure(results, ws, out)
+        print(f"\nFigure : {out.name}")
