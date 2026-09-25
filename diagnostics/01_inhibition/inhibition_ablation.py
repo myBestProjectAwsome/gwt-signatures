@@ -7,6 +7,9 @@ Question : qui pilote le choix du gagnant ?
 
 On lance la vraie boucle du package dans un monde SIMULÉ (FakeEnvironment),
 pour que les résultats soient identiques sur toutes les machines.
+La mémoire épisodique est désactivée (memory=False) : ce diagnostic porte
+sur l'inhibition et reste figé sur la configuration v1 (la mémoire a son
+propre diagnostic : diagnostics/02_memory).
 
 Mesures :
   M1  accord saillance : % de cycles où le gagnant est la proposition
@@ -37,7 +40,7 @@ NAMES = ["capteur_systeme", "exploration", "social", "metacognition", "utilisate
 def simulate(inhibition, cycles, seed):
     random.seed(seed)
     env = FakeEnvironment(seed=seed)
-    h, ws, user, modules = build(env)
+    h, ws, user, modules = build(env, memory=False)
     ws.inhibition = inhibition
     last_win = {n: -1 for n in NAMES}
     rows = []
@@ -108,7 +111,6 @@ if __name__ == "__main__":
     a.set(title="Répartition des gagnants", xlabel="inhibition", ylabel="%")
     a.legend(fontsize=8, loc="upper right")
 
-    # Les jauges pilotent-elles le comportement ? (inhibition 0.15, 300 cycles)
     a = fig.add_subplot(gs[1, :])
     run = example[0.15][:300]
     ts = [r["t"] for r in run]

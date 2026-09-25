@@ -1,3 +1,4 @@
 numpy>=1.24
 matplotlib>=3.7
 psutil>=5.9
+torch>=2.2   # conseillé : pip install torch --index-url https://download.pytorch.org/whl/cpu

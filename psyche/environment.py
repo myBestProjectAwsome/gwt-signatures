@@ -45,14 +45,17 @@ class FakeEnvironment:
 
     - batterie : se vide de 100 % à 20 %, puis se recharge, en boucle
     - CPU      : charge de fond aléatoire (graine fixée) avec des pics rares
-    - utilisateur : un message en moyenne tous les `user_period` cycles
+    - utilisateur : un message en moyenne tous les `user_period` cycles,
+                    tiré dans `user_messages`
     """
 
-    def __init__(self, seed=0, drain_cycles=400, user_period=60):
+    def __init__(self, seed=0, drain_cycles=400, user_period=60,
+                 user_messages=("bonjour",)):
         self.rng = random.Random(seed)
         self.t = 0
         self.drain_cycles = drain_cycles
         self.user_period = user_period
+        self.user_messages = list(user_messages)
 
     def tick(self):
         self.t += 1
@@ -70,5 +73,7 @@ class FakeEnvironment:
 
     def poll_user(self):
         if self.user_period and self.rng.random() < 1 / self.user_period:
-            return "bonjour"
+            if len(self.user_messages) == 1:     # pas de tirage : garde la séquence
+                return self.user_messages[0]     # aléatoire identique à la v1
+            return self.rng.choice(self.user_messages)
         return None
