@@ -278,8 +278,8 @@ Elle suit une feuille de route d'IAG en cinq étapes, qui reprend l'architecture
 
 | Étape | Feuille de route | Version mini-IAG |
 |---|---|---|
-| 1. Structures | 4 modules PyTorch, initialisation aléatoire sur GPU/TPU | 4 modules, ~46 000 paramètres, CPU ✅ |
-| 2. Éducation | chaque module entraîné à part sur des données massives | entraînement sur des transitions d'un monde en grille (quelques minutes) |
+| 1. Structures | 4 modules PyTorch, initialisation aléatoire sur GPU/TPU | 4 modules, ~53 000 paramètres, CPU ✅ |
+| 2. Éducation | chaque module entraîné à part sur des données massives | modèle du monde, puis coût et workspace sur ses latents : 2 minutes de CPU ✅ |
 | 3. Câblage | le workspace demande « simule ce choix » au modèle du monde et lit le coût | planification dans l'espace latent : imaginer, évaluer, choisir |
 | 4. Autonomie | corps robotique ou métavers | agent dans le monde en grille, apprentissage continu |
 | 5. Alignement et validation | coût verrouillé, tests de généralisation | coût gelé par empreinte SHA-256, test sur des cartes jamais vues contre des références |
@@ -307,7 +307,7 @@ Deux adaptations par rapport à la feuille de route :
 
 | Module | Fichier | Architecture | Paramètres |
 |---|---|---|---|
-| Modèle du monde | [`world_model.py`](mini_iag/modules/world_model.py) | JEPA : encodeur convolutif → latent 32D, prédicteur (z, action) → z suivant, encodeur cible en moyenne mobile, régularisation VICReg contre l'effondrement | 36 640 (+ 28 032 non entraînés pour la cible) |
+| Modèle du monde | [`world_model.py`](mini_iag/modules/world_model.py) | JEPA : encodeur convolutif → latent 32D, prédicteur (z, action) → z suivant, encodeur cible en moyenne mobile, régularisation VICReg contre l'effondrement, têtes de dynamique inverse et d'événements (ajoutées à l'étape 2) | 43 302 (+ 28 032 non entraînés pour la cible) |
 | Espace de travail | [`bottleneck_workspace.py`](mini_iag/modules/bottleneck_workspace.py) | 2 slots appris qui lisent N contenus par attention (compétition), puis diffusion vers tous les contenus (Goyal et al., 2022) | 8 640 |
 | Module de coût | [`cost_module.py`](mini_iag/modules/cost_module.py) | réseau dense latent → (danger, succès), avec `lock()` / `verify()` par empreinte SHA-256 | 1 122 |
 | Mémoire | [`vector_memory.py`](mini_iag/modules/vector_memory.py) | base vectorielle (clé latente → action, récompense, danger, succès), rappel cosinus, tampon circulaire | 0 (5 000 entrées) |
@@ -324,8 +324,8 @@ La feuille de route affirme qu'à l'initialisation « le système ne produit que
 |---|---|---|---|
 | S1 | Modèle du monde : retrouver l'action faite entre deux états | 29,0 % | 29,9 % |
 | S2 | Case de l'agent retrouvée depuis le latent (sonde linéaire) | **58,5 %** | 5,3 % (image brute : 100 %) |
-| S3 | Coût : détecter la lave / l'objectif (AUC) | 0,50 / 0,54 | 0,50 |
-| S4 | Workspace : attention sur le seul contenu pertinent parmi 8 | 0,127 | 0,125 |
+| S3 | Coût : détecter la lave / l'objectif (AUC) | 0,48 / 0,52 | 0,50 |
+| S4 | Workspace : attention sur le seul contenu pertinent parmi 8 | 0,125 | 0,125 |
 | S5 | Mémoire : retrouver un état stocké | 100 % | — |
 
 **Ce qu'on apprend :**
@@ -333,13 +333,82 @@ La feuille de route affirme qu'à l'initialisation « le système ne produit que
 1. **Le modèle du monde, le coût et le workspace sont bien au niveau du hasard** (S1, S3, S4) : aucune compétence avant l'entraînement.
 2. **Mais « aléatoire » ne veut pas dire « bruit ».** Un encodeur à poids aléatoires conserve beaucoup d'information (S2 : 58,5 % contre 5,3 % au hasard), parce qu'une projection aléatoire préserve en partie les distances entre les entrées. Ce qui manque, c'est une information **organisée pour prédire**. Le latent aléatoire est dominé par la disposition de la carte, et déplacer l'agent le fait à peine bouger (erreur « rien ne change » de 4 × 10⁻⁵). L'entraînement JEPA doit apprendre à représenter **ce qui change** quand on agit.
 3. **La mémoire marche dès l'étape 1**, puisqu'elle n'apprend rien : c'est une structure de données. Sa qualité dépendra entièrement de celle des vecteurs qu'on y range.
-4. **Un piège de mesure.** Sur S4, l'argmax de l'attention désigne le bon contenu dans 95 % des cas, alors que l'attention est parfaitement uniforme (entropie 1,000). La norme plus grande du contenu pertinent crée des écarts minuscules mais systématiques. D'où la règle : **mesurer la masse d'attention, pas l'argmax**.
+4. **Un piège de mesure.** Sur S4, l'attention est parfaitement uniforme (entropie 1,000), mais son argmax désignait le bon contenu dans **95 %** des cas avec la première version du code. Après l'ajout de deux têtes au modèle du monde (étape 2), l'initialisation aléatoire des modules suivants a légèrement changé, et ce même argmax est tombé à **11 %**. Sur une attention quasi uniforme, l'argmax dépend de détails minuscules de l'initialisation : il ne signifie rien. D'où la règle : **mesurer la masse d'attention, pas l'argmax**.
 
 Vérification de la mesure S1 : un entraînement jetable de 30 secondes la fait monter à environ 70 % sur des cartes jamais vues. Elle peut donc bien détecter un apprentissage.
 
 ```bash
 cd diagnostics/03_iag_structures
 python structures_check.py
+```
+
+### Étape 2 : L'éducation des modules
+
+```bash
+python -m mini_iag.train          # ~2 minutes sur CPU, écrit checkpoints/step2.pt
+```
+
+Tout est entraîné sur 2 000 cartes (graine 0) et mesuré sur des cartes **jamais vues** (graine 1). L'ordre est celui annoncé plus haut :
+
+1. **Le modèle du monde**, auto-supervisé, sur 60 000 transitions et 20 000 segments de 3 pas collectés par un agent qui marche au hasard ([`world_model_trainer.py`](mini_iag/training/world_model_trainer.py)) ;
+2. **le module de coût**, sur les latents du modèle du monde gelé ([`cost_trainer.py`](mini_iag/training/cost_trainer.py)) ;
+3. **l'espace de travail**, sur ces mêmes latents ([`workspace_trainer.py`](mini_iag/training/workspace_trainer.py)).
+
+#### Deux échecs du JEPA, et leurs corrections
+
+L'entraînement « naïf » du modèle du monde (JEPA + VICReg, comme à l'étape 1) **échoue**, et de façon instructive :
+
+| Version | Action retrouvée (S1) | Position de l'agent dans le latent | Position de l'objectif |
+|---|---|---|---|
+| Aléatoire (étape 1) | 30 % | 65 % | 52 % |
+| JEPA naïf | 58 %, puis **35 %** en entraînant plus longtemps | **5 %** (hasard) | — |
+| + dynamique inverse | 98 % | 91 % | **17 %** |
+| + événements + multi-pas (version finale) | 97 % | 60 % | 26 % |
+
+1. **Le JEPA jette l'agent.** Le moyen le plus simple de prédire l'état suivant est d'ignorer ce qui bouge : la carte ne change pas d'un pas à l'autre, donc un latent qui n'encode que la carte se prédit parfaitement lui-même. La régularisation VICReg est trompée, elle aussi : la carte varie assez d'un exemple à l'autre pour satisfaire la contrainte de variance. C'est un **effondrement partiel**. Correction : une tête de **dynamique inverse** ([`inverse_dynamics.py`](mini_iag/modules/inverse_dynamics.py)) qui devine l'action à partir de (z_t, z_{t+1}). Pour réussir, le latent doit encoder ce que l'agent **contrôle**. Cela reste auto-supervisé, puisque l'agent connaît toujours l'action qu'il a faite.
+2. **Le JEPA jette l'objectif.** Un JEPA ne garde que ce qui sert à **son** objectif, et l'objectif ne change rien aux déplacements. Or le module de coût en a besoin. C'est exactement le risque d'entraîner les modules « chacun de son côté » comme le propose la feuille de route. Correction : une tête d'**événements** ([`event_predictor.py`](mini_iag/modules/event_predictor.py)) qui prédit ce que l'agent va percevoir (lave, objectif), comme les modèles du monde de type Dreamer prédisent la récompense.
+
+Enfin, le modèle n'était entraîné qu'à prédire **un** pas, et il dérivait vite en imagination. Il est maintenant aussi entraîné sur des segments de 3 pas, avec une correction à chaque pas imaginé (`multistep_loss`), comme TD-MPC ou Dreamer.
+
+#### Diagnostic 4 : avant / après, et une ablation par ingrédient
+
+**Dossier :** [`diagnostics/04_iag_training/`](diagnostics/04_iag_training/)
+
+Chaque ingrédient ajouté au modèle du monde est retiré à son tour, puis le modèle et le coût sont réentraînés.
+
+![Résultats de l'étape 2](diagnostics/04_iag_training/training_results.png)
+
+| Mesure (cartes jamais vues) | Avant | **Complet** | Sans inverse | Sans événements | Sans multi-pas |
+|---|---|---|---|---|---|
+| S1 Action retrouvée | 29,8 % | **97,0 %** | 58,7 % | 98,5 % | 94,2 % |
+| S2 Position de l'agent (sonde linéaire) | 65,2 % | 60,2 % | 30,4 % | 89,4 % | 70,0 % |
+| S3 Anticiper la lave, 1 / 3 / 5 pas (AUC) | 0,48 / 0,47 / 0,46 | **0,995 / 0,919 / 0,897** | 0,993 / 0,854 / 0,789 | 0,909 / 0,898 / 0,892 | 0,998 / 0,858 / 0,767 |
+| S3 Anticiper l'objectif, 1 / 3 / 5 pas (AUC) | 0,48 / 0,55 / 0,54 | **0,975 / 0,898 / 0,816** | 0,933 / 0,828 / 0,749 | 0,600 / 0,624 / 0,615 | 0,964 / 0,804 / 0,744 |
+
+S3 se lit ainsi : le modèle imagine *h* actions à partir de l'état actuel, **sans les exécuter**, et le module de coût évalue l'état imaginé. On compare avec ce qui arrive réellement.
+
+| S4 Espace de travail (1 contenu signalé parmi 8 états réels) | Attention sur le signalé | Case retrouvée par la lecture |
+|---|---|---|
+| Avant (tout aléatoire) | 0,125 | 3,8 % |
+| Workspace gelé, lecture entraînée | 0,125 | 11,2 % |
+| **Workspace entraîné** | **0,999** | **99,9 %** |
+
+**Ce qu'on apprend :**
+
+1. **Chaque ingrédient est nécessaire, et chacun a un effet différent.** Sans dynamique inverse, S1 s'effondre et l'imagination dérive. Sans événements, S1 est même meilleur, mais le coût ne voit plus l'objectif (AUC ≈ 0,6 à tous les horizons). Sans multi-pas, un pas suffit, puis l'anticipation se dégrade (0,77 à 5 pas pour la lave, contre 0,90).
+2. **Aucune variante n'est la meilleure partout.** La version complète est la meilleure pour **anticiper**, et c'est ce qui compte pour planifier (étape 3). Elle paie ce gain sur la lisibilité *linéaire* de la position de l'agent (S2 : 60 % contre 89 % sans événements) : 32 dimensions doivent maintenant tout porter. L'information reste présente, puisque l'action et les événements sont bien prédits, mais elle n'est plus rangée de façon linéaire.
+3. **Le workspace apprend à sélectionner sans qu'on lui dise quoi regarder.** Seule la réussite de la lecture est supervisée, jamais l'attention. C'est le goulot qui oblige l'attention à se concentrer sur le contenu signalé (0,125 → 0,999). Gelé, le workspace laisse passer un mélange des 8 contenus, et la lecture échoue (11 %).
+
+**Limites :**
+
+- **La tâche du workspace est facile.** Le contenu pertinent est signalé par un indice fixe. Elle montre que le mécanisme de sélection apprend, pas qu'il sait juger ce qui est pertinent. Ce jugement viendra au câblage (étape 3), quand ce qui entre dans le workspace devra servir à décider.
+- **L'objectif reste mal encodé.** Sa position n'est lisible linéairement qu'à 26 %, et l'anticipation de l'objectif baisse plus vite que celle de la lave. C'est la faiblesse à surveiller pour la planification.
+- **Reproductibilité** : les chiffres sont identiques d'une exécution à l'autre sur une même machine. Sur une autre machine (autre processeur, autre version de PyTorch), les calculs flottants peuvent différer très légèrement, et un entraînement amplifie ces écarts. Attends-toi à des variations de quelques points, mais pas à des conclusions différentes.
+
+```bash
+python -m mini_iag.train                                     # entraîner (si pas déjà fait)
+python diagnostics/04_iag_training/training_check.py --quick # sans ablations, ~20 s
+python diagnostics/04_iag_training/training_check.py         # avec ablations, quelques minutes
 ```
 
 ---
@@ -350,7 +419,7 @@ python structures_check.py
 - [x] **Diagnostic 1** : ablation de l'inhibition, puis corrections v1
 - [x] **Mémoire épisodique** et **diagnostic 2** : encodage, rappel associatif et délibéré, persistance SQLite
 - [x] **Mini-IAG, étape 1** : les 4 modules vides et leur diagnostic
-- [ ] **Mini-IAG, étape 2** : entraîner le modèle du monde (JEPA), puis le coût et le workspace sur ses représentations
+- [x] **Mini-IAG, étape 2** : entraîner le modèle du monde (JEPA), puis le coût et le workspace sur ses représentations
 - [ ] **Mini-IAG, étape 3** : câblage, planification dans l'espace latent
 - [ ] **Mini-IAG, étape 4** : agent autonome et apprentissage continu dans le monde en grille
 - [ ] **Mini-IAG, étape 5** : coût verrouillé, tests de généralisation sur des cartes jamais vues
@@ -383,6 +452,9 @@ python structures_check.py
 - Bardes, A., Ponce, J., & LeCun, Y. (2022). VICReg: Variance-Invariance-Covariance Regularization for Self-Supervised Learning. *ICLR*.
 - Goyal, A., et al. (2022). Coordination Among Neural Modules Through a Shared Global Workspace. *ICLR*.
 - Assran, M., et al. (2023). Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture (I-JEPA). *CVPR*.
+- Pathak, D., et al. (2017). Curiosity-driven Exploration by Self-supervised Prediction. *ICML* (dynamique inverse).
+- Hafner, D., et al. (2023). Mastering Diverse Domains through World Models (DreamerV3). *arXiv:2301.04104*.
+- Hansen, N., Su, H., & Wang, X. (2024). TD-MPC2: Scalable, Robust World Models for Continuous Control. *ICLR*.
 
 ## Structure du dépôt
 
@@ -392,6 +464,7 @@ python structures_check.py
 ├── .gitignore
 ├── LICENSE
 ├── requirements.txt
+├── checkpoints/                 # poids entraînés de la mini-IAG (non versionné)
 ├── data/                        # mémoire de psyche (créé au lancement, non versionné)
 ├── diagnostics/                 # Tests du prototype psyche
 │   ├── 01_inhibition/
@@ -401,8 +474,12 @@ python structures_check.py
 │   ├── 02_memory/
 │   │   ├── memory_diagnostic.py
 │   │   └── memory_results.png
-│   └── 03_iag_structures/
-│       └── structures_check.py
+│   ├── 03_iag_structures/
+│   │   └── structures_check.py
+│   └── 04_iag_training/
+│       ├── training_check.py
+│       ├── training_results.json
+│       └── training_results.png
 ├── experiments/                 # Expériences (une par dossier)
 │   └── 01_ignition/
 │       ├── ignition.py
@@ -411,11 +488,21 @@ python structures_check.py
 │   ├── __init__.py
 │   ├── config.py                # Config (toutes les dimensions)
 │   ├── architecture.py          # Architecture (assemble les 4 modules)
+│   ├── data.py                  # collecte : transitions, segments, séquences de test
+│   ├── metrics.py               # mesures communes aux diagnostics
+│   ├── train.py                 # étape 2 : python -m mini_iag.train
+│   ├── training/
+│   │   ├── world_model_trainer.py   # WorldModelTrainer
+│   │   ├── cost_trainer.py          # CostTrainer
+│   │   ├── workspace_trainer.py     # WorkspaceTrainer (+ tâche de sélection)
+│   │   └── selection_readout.py     # SelectionReadout (lecture des slots)
 │   ├── environment/
 │   │   └── gridworld.py         # GridWorld (monde en grille)
 │   └── modules/
 │       ├── state_encoder.py     # StateEncoder (observation → latent)
 │       ├── latent_predictor.py  # LatentPredictor (latent + action → latent suivant)
+│       ├── inverse_dynamics.py  # InverseDynamics (quelle action ?)
+│       ├── event_predictor.py   # EventPredictor (lave / objectif perçus)
 │       ├── world_model.py       # WorldModel (JEPA)
 │       ├── bottleneck_workspace.py  # BottleneckWorkspace (goulot d'attention)
 │       ├── cost_module.py       # CostModule (danger, succès, verrou)

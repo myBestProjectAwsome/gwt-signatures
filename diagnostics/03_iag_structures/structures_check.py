@@ -24,109 +24,28 @@ Mesures :
 import sys
 from pathlib import Path
 
-import numpy as np
 import torch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from mini_iag import Architecture, Config, GridWorld  # noqa: E402
-from mini_iag.environment.gridworld import AGENT, GOAL, LAVA  # noqa: E402
-
-
-def collect(cfg, n_maps=300, steps=30, seed=0):
-    rng = np.random.default_rng(seed)
-    env = GridWorld(cfg)
-    obs, act, nxt = [], [], []
-    for m in range(n_maps):
-        o = env.reset(seed=seed * 10_000 + m)
-        for _ in range(steps):
-            a = int(rng.integers(cfg.n_actions))
-            o2, _, done, _ = env.step(a)
-            obs.append(o); act.append(a); nxt.append(o2)
-            o = o2
-            if done:
-                o = env.reset(seed=seed * 10_000 + m)
-    return (torch.tensor(np.array(obs)), torch.tensor(act), torch.tensor(np.array(nxt)))
-
-
-def agent_cell(obs):
-    n = obs.shape[-1]
-    return obs[:, AGENT].reshape(len(obs), -1).argmax(1), n * n
-
-
-def equivalent_actions(obs, act):
-    """Masque (B, 4) des actions qui mènent au même résultat que l'action réelle."""
-    from mini_iag.environment.gridworld import MOVES, WALL
-    n = obs.shape[-1]
-    cell = obs[:, AGENT].reshape(len(obs), -1).argmax(1)
-    r, c = cell // n, cell % n
-    dest = []
-    for dr, dc in MOVES:
-        rr, cc = r + dr, c + dc
-        blocked = obs[torch.arange(len(obs)), WALL, rr, cc] > 0
-        dest.append(torch.where(blocked, cell, rr * n + cc))
-    dest = torch.stack(dest, 1)
-    return dest == dest[torch.arange(len(obs)), act].unsqueeze(1)
-
-
-def labels(obs):
-    on = lambda ch: (obs[:, ch] * obs[:, AGENT]).sum((1, 2)) > 0
-    return on(LAVA).float(), on(GOAL).float()
-
-
-def auc(scores, y):
-    """Aire sous la courbe ROC (0.5 = hasard, 1 = parfait), par les rangs."""
-    order = scores.argsort()
-    ranks = torch.empty_like(order, dtype=torch.float)
-    ranks[order] = torch.arange(1, len(scores) + 1, dtype=torch.float)
-    pos = y.bool()
-    n1, n0 = pos.sum().item(), (~pos).sum().item()
-    return (ranks[pos].sum().item() - n1 * (n1 + 1) / 2) / (n1 * n0)
-
-
-def linear_probe(x, y, n_classes, split=0.7, ridge=1e-2):
-    """Régression ridge (forme fermée) vers un one-hot ; renvoie la précision test."""
-    k = int(split * len(x))
-    x = torch.cat([x, torch.ones(len(x), 1)], 1)
-    Y = torch.nn.functional.one_hot(y, n_classes).float()
-    A = x[:k].T @ x[:k] + ridge * torch.eye(x.shape[1])
-    W = torch.linalg.solve(A, x[:k].T @ Y[:k])
-    return ((x[k:] @ W).argmax(1) == y[k:]).float().mean().item()
-
-
-def workspace_selection(ws, d, n_tokens=8, batch=2000, seed=0):
-    """Un seul contenu porte un signal fixe ; les autres sont du bruit."""
-    g = torch.Generator().manual_seed(seed)
-    tokens = torch.randn(batch, n_tokens, d, generator=g)
-    signal = torch.randn(d, generator=g)
-    target = torch.randint(n_tokens, (batch,), generator=g)
-    tokens[torch.arange(batch), target] += 2 * signal
-    _, _, attn = ws(tokens)                       # (B, K, N)
-    att = attn.mean(1)                            # moyenne sur les slots
-    acc = (att.argmax(1) == target).float().mean().item()
-    ent = -(att * att.clamp_min(1e-9).log()).sum(1).mean().item() / np.log(n_tokens)
-    return acc, att[torch.arange(batch), target].mean().item(), ent
+from mini_iag import Architecture, Config  # noqa: E402
+from mini_iag.data import collect  # noqa: E402
+from mini_iag.metrics import (action_identification, agent_cell, auc,  # noqa: E402
+                              labels, linear_probe, workspace_selection)
 
 
 if __name__ == "__main__":
     cfg = Config()
     arch = Architecture(cfg)
     arch.eval()
-    obs, act, nxt = collect(cfg)
+    data = collect(cfg)
+    obs, act, nxt = data.obs, data.action, data.next_obs
     lava, goal = labels(nxt)
 
     with torch.no_grad():
         wm = arch.world_model
-        z, z_next = wm.encode(obs), wm.target_encoder(nxt)
-        preds = torch.stack([wm.predict(z, torch.full_like(act, a))
-                             for a in range(cfg.n_actions)], 1)          # (B, 4, D)
-        dist = ((preds - z_next.unsqueeze(1)) ** 2).sum(-1)
-        equiv = equivalent_actions(obs, act)
-        act_acc = equiv[torch.arange(len(act)), dist.argmin(1)].float().mean().item()
-        act_chance = equiv.float().mean().item()
-        err_pred = ((preds[torch.arange(len(act)), act] - z_next) ** 2).mean().item()
-        err_copy = ((z - z_next) ** 2).mean().item()
+        act_acc, act_chance, err_pred, err_copy = action_identification(wm, obs, act, nxt)
         z_all = wm.encode(nxt)
         cell, n_cells = agent_cell(nxt)
         probe_latent = linear_probe(z_all, cell, n_cells)
