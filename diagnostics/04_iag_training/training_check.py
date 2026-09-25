@@ -173,7 +173,8 @@ if __name__ == "__main__":
     results = {"avant": evaluate_world(before, test_data, seqs, probe_obs),
                "complet": evaluate_world(arch, test_data, seqs, probe_obs)}
     if not args.quick:
-        segments = collect_segments(cfg, n_maps=TRAIN_MAPS, seed=TRAIN_SEED)
+        segments = collect_segments(cfg, n_maps=TRAIN_MAPS, horizon=cfg.multistep_horizon,
+                                    seed=TRAIN_SEED)
         for name, w in VARIANTS.items():
             print(f"ablation : {name} (réentraînement)...", flush=True)
             results[name] = evaluate_world(train_variant(cfg, train_data, segments, **w),

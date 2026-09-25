@@ -17,7 +17,7 @@ class Architecture(nn.Module):
         self.cfg = cfg
         self.world_model = WorldModel(cfg)
         self.workspace = BottleneckWorkspace(cfg)
-        self.cost = CostModule(cfg)
+        self.cost = CostModule(cfg, w_danger=cfg.danger_weight, w_success=cfg.success_weight)
         self.memory = VectorMemory(cfg)          # pas un nn.Module : pas de poids
 
     def parameter_counts(self):

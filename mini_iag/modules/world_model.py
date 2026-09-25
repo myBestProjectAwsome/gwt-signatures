@@ -61,8 +61,14 @@ class WorldModel(nn.Module):
         return torch.stack(traj, dim=1)
 
     # ------------------------------------------------------------ apprentissage
+    def _event_loss(self, logits, events, success_weight, reduction="mean"):
+        """BCE des événements ; le succès (rare) peut être surpondéré."""
+        pw = torch.tensor([1.0, success_weight], device=logits.device)
+        return F.binary_cross_entropy_with_logits(logits, events, pos_weight=pw,
+                                                  reduction=reduction)
+
     def loss(self, obs, action, next_obs, next_events=None, var_weight=1.0,
-             cov_weight=0.04, inv_weight=1.0, event_weight=1.0):
+             cov_weight=0.04, inv_weight=1.0, event_weight=1.0, success_weight=1.0):
         """next_events : (B, 2) lave / objectif perçus dans next_obs (0/1).
         Renvoie (perte totale, détail des termes)."""
         z = self.encoder(obs)
@@ -80,12 +86,13 @@ class WorldModel(nn.Module):
                  + cov_weight * terms["covariance"] + inv_weight * terms["inverse"])
         if next_events is not None and event_weight > 0:
             # sur l'état réel (forme l'encodeur) ET sur l'état imaginé (forme le prédicteur)
-            terms["events"] = (F.binary_cross_entropy_with_logits(self.events(z_next), next_events)
-                               + F.binary_cross_entropy_with_logits(self.events(pred), next_events))
+            terms["events"] = (self._event_loss(self.events(z_next), next_events, success_weight)
+                               + self._event_loss(self.events(pred), next_events, success_weight))
             total = total + event_weight * terms["events"]
         return total, terms
 
-    def multistep_loss(self, obs, actions, visited, events, alive, event_weight=1.0):
+    def multistep_loss(self, obs, actions, visited, events, alive, event_weight=1.0,
+                       success_weight=1.0):
         """Imagine H pas d'affilée et corrige chaque pas (état ET événements).
         Sans cela, le modèle n'est entraîné qu'à un pas et dérive vite en imagination."""
         B, H = actions.shape
@@ -94,8 +101,8 @@ class WorldModel(nn.Module):
         traj = self.rollout(self.encoder(obs), actions)                # (B, H, D)
         mask = alive.float()
         mse = ((traj - targets) ** 2).mean(-1)
-        bce = F.binary_cross_entropy_with_logits(self.events(traj), events,
-                                                 reduction="none").mean(-1)
+        bce = self._event_loss(self.events(traj), events, success_weight,
+                               reduction="none").mean(-1)
         n = mask.sum().clamp_min(1)
         return ((mse + event_weight * bce) * mask).sum() / n
 

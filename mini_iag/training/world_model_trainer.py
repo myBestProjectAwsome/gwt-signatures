@@ -12,11 +12,12 @@ from ..metrics import action_identification
 class WorldModelTrainer:
     def __init__(self, world_model, lr=1e-3, iters=6000, batch_size=256,
                  var_weight=1.0, cov_weight=0.04, inv_weight=1.0, event_weight=1.0,
-                 multistep_weight=1.0, seed=0):
+                 multistep_weight=1.0, success_weight=10.0, seed=0):
         self.wm = world_model
         self.iters, self.batch_size = iters, batch_size
         self.weights = dict(var_weight=var_weight, cov_weight=cov_weight,
-                            inv_weight=inv_weight, event_weight=event_weight)
+                            inv_weight=inv_weight, event_weight=event_weight,
+                            success_weight=success_weight)
         self.multistep_weight = multistep_weight
         params = [p for p in world_model.parameters() if p.requires_grad]
         self.opt = torch.optim.Adam(params, lr=lr)
@@ -32,7 +33,8 @@ class WorldModelTrainer:
             if segments is not None and self.multistep_weight > 0:
                 terms["multistep"] = self.wm.multistep_loss(
                     *segments.batch(self.batch_size, self.gen),
-                    event_weight=self.weights["event_weight"])
+                    event_weight=self.weights["event_weight"],
+                    success_weight=self.weights["success_weight"])
                 total = total + self.multistep_weight * terms["multistep"]
             self.opt.zero_grad()
             total.backward()

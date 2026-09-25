@@ -279,8 +279,8 @@ Elle suit une feuille de route d'IAG en cinq étapes, qui reprend l'architecture
 | Étape | Feuille de route | Version mini-IAG |
 |---|---|---|
 | 1. Structures | 4 modules PyTorch, initialisation aléatoire sur GPU/TPU | 4 modules, ~53 000 paramètres, CPU ✅ |
-| 2. Éducation | chaque module entraîné à part sur des données massives | modèle du monde, puis coût et workspace sur ses latents : 2 minutes de CPU ✅ |
-| 3. Câblage | le workspace demande « simule ce choix » au modèle du monde et lit le coût | planification dans l'espace latent : imaginer, évaluer, choisir |
+| 2. Éducation | chaque module entraîné à part sur des données massives | modèle du monde, puis coût et workspace sur ses latents : 3 à 4 minutes de CPU ✅ |
+| 3. Câblage | le workspace demande « simule ce choix » au modèle du monde et lit le coût | agent qui planifie dans l'espace latent : imaginer, évaluer, choisir ✅ |
 | 4. Autonomie | corps robotique ou métavers | agent dans le monde en grille, apprentissage continu |
 | 5. Alignement et validation | coût verrouillé, tests de généralisation | coût gelé par empreinte SHA-256, test sur des cartes jamais vues contre des références |
 
@@ -345,12 +345,12 @@ python structures_check.py
 ### Étape 2 : L'éducation des modules
 
 ```bash
-python -m mini_iag.train          # ~2 minutes sur CPU, écrit checkpoints/step2.pt
+python -m mini_iag.train          # 3 à 4 minutes sur CPU, écrit checkpoints/step2.pt
 ```
 
 Tout est entraîné sur 2 000 cartes (graine 0) et mesuré sur des cartes **jamais vues** (graine 1). L'ordre est celui annoncé plus haut :
 
-1. **Le modèle du monde**, auto-supervisé, sur 60 000 transitions et 20 000 segments de 3 pas collectés par un agent qui marche au hasard ([`world_model_trainer.py`](mini_iag/training/world_model_trainer.py)) ;
+1. **Le modèle du monde**, auto-supervisé, sur 60 000 transitions et 20 000 segments de 6 pas collectés par un agent qui marche au hasard ([`world_model_trainer.py`](mini_iag/training/world_model_trainer.py)) ;
 2. **le module de coût**, sur les latents du modèle du monde gelé ([`cost_trainer.py`](mini_iag/training/cost_trainer.py)) ;
 3. **l'espace de travail**, sur ces mêmes latents ([`workspace_trainer.py`](mini_iag/training/workspace_trainer.py)).
 
@@ -363,12 +363,15 @@ L'entraînement « naïf » du modèle du monde (JEPA + VICReg, comme à l'étap
 | Aléatoire (étape 1) | 30 % | 65 % | 52 % |
 | JEPA naïf | 58 %, puis **35 %** en entraînant plus longtemps | **5 %** (hasard) | — |
 | + dynamique inverse | 98 % | 91 % | **17 %** |
-| + événements + multi-pas (version finale) | 97 % | 60 % | 26 % |
+| + événements + multi-pas sur 3 pas (1re version) | 97 % | 60 % | 26 % |
+| + multi-pas sur 6 pas, succès pondéré ×10 (version révisée après l'étape 3) | 94 % | 74 % | **74 %** |
 
 1. **Le JEPA jette l'agent.** Le moyen le plus simple de prédire l'état suivant est d'ignorer ce qui bouge : la carte ne change pas d'un pas à l'autre, donc un latent qui n'encode que la carte se prédit parfaitement lui-même. La régularisation VICReg est trompée, elle aussi : la carte varie assez d'un exemple à l'autre pour satisfaire la contrainte de variance. C'est un **effondrement partiel**. Correction : une tête de **dynamique inverse** ([`inverse_dynamics.py`](mini_iag/modules/inverse_dynamics.py)) qui devine l'action à partir de (z_t, z_{t+1}). Pour réussir, le latent doit encoder ce que l'agent **contrôle**. Cela reste auto-supervisé, puisque l'agent connaît toujours l'action qu'il a faite.
 2. **Le JEPA jette l'objectif.** Un JEPA ne garde que ce qui sert à **son** objectif, et l'objectif ne change rien aux déplacements. Or le module de coût en a besoin. C'est exactement le risque d'entraîner les modules « chacun de son côté » comme le propose la feuille de route. Correction : une tête d'**événements** ([`event_predictor.py`](mini_iag/modules/event_predictor.py)) qui prédit ce que l'agent va percevoir (lave, objectif), comme les modèles du monde de type Dreamer prédisent la récompense.
 
-Enfin, le modèle n'était entraîné qu'à prédire **un** pas, et il dérivait vite en imagination. Il est maintenant aussi entraîné sur des segments de 3 pas, avec une correction à chaque pas imaginé (`multistep_loss`), comme TD-MPC ou Dreamer.
+Enfin, le modèle n'était entraîné qu'à prédire **un** pas, et il dérivait vite en imagination. Il est maintenant aussi entraîné sur des segments de plusieurs pas, avec une correction à chaque pas imaginé (`multistep_loss`), comme TD-MPC ou Dreamer.
+
+**Révision après l'étape 3.** La première version s'entraînait sur des segments de 3 pas et gardait mal l'objectif (26 %). L'étape 3 a montré que c'était rédhibitoire pour planifier : l'agent restait bloqué 83 % du temps. On est donc revenu corriger l'étape 2 : segments de **6 pas**, et événements « succès » (rares) pondérés **×10** dans la tête d'événements. La position de l'objectif passe de 26 % à 74 %. Les chiffres ci-dessous sont ceux de cette version révisée.
 
 #### Diagnostic 4 : avant / après, et une ablation par ingrédient
 
@@ -380,35 +383,136 @@ Chaque ingrédient ajouté au modèle du monde est retiré à son tour, puis le 
 
 | Mesure (cartes jamais vues) | Avant | **Complet** | Sans inverse | Sans événements | Sans multi-pas |
 |---|---|---|---|---|---|
-| S1 Action retrouvée | 29,8 % | **97,0 %** | 58,7 % | 98,5 % | 94,2 % |
-| S2 Position de l'agent (sonde linéaire) | 65,2 % | 60,2 % | 30,4 % | 89,4 % | 70,0 % |
-| S3 Anticiper la lave, 1 / 3 / 5 pas (AUC) | 0,48 / 0,47 / 0,46 | **0,995 / 0,919 / 0,897** | 0,993 / 0,854 / 0,789 | 0,909 / 0,898 / 0,892 | 0,998 / 0,858 / 0,767 |
-| S3 Anticiper l'objectif, 1 / 3 / 5 pas (AUC) | 0,48 / 0,55 / 0,54 | **0,975 / 0,898 / 0,816** | 0,933 / 0,828 / 0,749 | 0,600 / 0,624 / 0,615 | 0,964 / 0,804 / 0,744 |
+| S1 Action retrouvée | 29,8 % | **94,4 %** | 70,3 % | 98,5 % | 91,3 % |
+| S2 Position de l'agent (sonde linéaire) | 65,2 % | 74,3 % | 37,6 % | 89,1 % | 71,5 % |
+| S2 Position de l'objectif (sonde linéaire) | 52,4 % | **73,9 %** | 74,2 % | 15,0 % | 45,8 % |
+| S3 Anticiper la lave, 1 / 3 / 5 pas (AUC) | 0,48 / 0,47 / 0,46 | 0,940 / 0,816 / 0,814 | 0,903 / 0,768 / 0,740 | 0,915 / 0,899 / 0,873 | 0,957 / 0,761 / 0,718 |
+| S3 Anticiper l'objectif, 1 / 3 / 5 pas (AUC) | 0,48 / 0,55 / 0,54 | **1,000 / 0,994 / 0,985** | 1,000 / 0,990 / 0,976 | 0,575 / 0,585 / 0,620 | 1,000 / 0,948 / 0,875 |
 
 S3 se lit ainsi : le modèle imagine *h* actions à partir de l'état actuel, **sans les exécuter**, et le module de coût évalue l'état imaginé. On compare avec ce qui arrive réellement.
 
 | S4 Espace de travail (1 contenu signalé parmi 8 états réels) | Attention sur le signalé | Case retrouvée par la lecture |
 |---|---|---|
-| Avant (tout aléatoire) | 0,125 | 3,8 % |
-| Workspace gelé, lecture entraînée | 0,125 | 11,2 % |
-| **Workspace entraîné** | **0,999** | **99,9 %** |
+| Avant (tout aléatoire) | 0,125 | 0,0 % |
+| Workspace gelé, lecture entraînée | 0,125 | 10,0 % |
+| **Workspace entraîné** | **1,000** | **99,6 %** |
 
 **Ce qu'on apprend :**
 
-1. **Chaque ingrédient est nécessaire, et chacun a un effet différent.** Sans dynamique inverse, S1 s'effondre et l'imagination dérive. Sans événements, S1 est même meilleur, mais le coût ne voit plus l'objectif (AUC ≈ 0,6 à tous les horizons). Sans multi-pas, un pas suffit, puis l'anticipation se dégrade (0,77 à 5 pas pour la lave, contre 0,90).
-2. **Aucune variante n'est la meilleure partout.** La version complète est la meilleure pour **anticiper**, et c'est ce qui compte pour planifier (étape 3). Elle paie ce gain sur la lisibilité *linéaire* de la position de l'agent (S2 : 60 % contre 89 % sans événements) : 32 dimensions doivent maintenant tout porter. L'information reste présente, puisque l'action et les événements sont bien prédits, mais elle n'est plus rangée de façon linéaire.
+1. **Chaque ingrédient est nécessaire, et chacun a un effet différent.** Sans dynamique inverse, S1 s'effondre (70 %) et la position de l'agent disparaît du latent (38 %). Sans événements, l'objectif disparaît (15 %) et le coût ne le voit plus (AUC ≈ 0,6 à tous les horizons). Sans multi-pas, un pas suffit, puis l'anticipation se dégrade (0,72 à 5 pas pour la lave, 0,875 pour l'objectif).
+2. **Aucune variante n'est la meilleure partout.** La version complète anticipe l'objectif presque parfaitement, même à 5 pas (0,985). Elle paie ce gain sur l'anticipation de la lave : 0,81 à 5 pas, contre 0,87 sans événements et 0,90 avec la première version. Avec 32 dimensions, garder l'objectif prend de la place à autre chose. C'est un compromis, pas une amélioration gratuite.
 3. **Le workspace apprend à sélectionner sans qu'on lui dise quoi regarder.** Seule la réussite de la lecture est supervisée, jamais l'attention. C'est le goulot qui oblige l'attention à se concentrer sur le contenu signalé (0,125 → 0,999). Gelé, le workspace laisse passer un mélange des 8 contenus, et la lecture échoue (11 %).
 
 **Limites :**
 
 - **La tâche du workspace est facile.** Le contenu pertinent est signalé par un indice fixe. Elle montre que le mécanisme de sélection apprend, pas qu'il sait juger ce qui est pertinent. Ce jugement viendra au câblage (étape 3), quand ce qui entre dans le workspace devra servir à décider.
-- **L'objectif reste mal encodé.** Sa position n'est lisible linéairement qu'à 26 %, et l'anticipation de l'objectif baisse plus vite que celle de la lave. C'est la faiblesse à surveiller pour la planification.
+- **Ces AUC sont mesurées avec le coût de l'étape 2**, entraîné sur des états réels. Sur des états imaginés, ses probabilités sont mal calibrées, ce que l'étape 3 corrige (affinage de coordination).
 - **Reproductibilité** : les chiffres sont identiques d'une exécution à l'autre sur une même machine. Sur une autre machine (autre processeur, autre version de PyTorch), les calculs flottants peuvent différer très légèrement, et un entraînement amplifie ces écarts. Attends-toi à des variations de quelques points, mais pas à des conclusions différentes.
 
 ```bash
 python -m mini_iag.train                                     # entraîner (si pas déjà fait)
 python diagnostics/04_iag_training/training_check.py --quick # sans ablations ni figure, ~20 s
-python diagnostics/04_iag_training/training_check.py         # avec ablations, quelques minutes
+python diagnostics/04_iag_training/training_check.py         # avec ablations, ~10 minutes
+```
+
+### Étape 3 : Le câblage (l'agent qui planifie)
+
+```bash
+python -m mini_iag.coordinate     # ~30 s, écrit checkpoints/step3.pt (après l'étape 2)
+python -m mini_iag.play           # regarder l'agent jouer (--carte N pour une autre carte)
+```
+
+#### Le protocole interne
+
+L'agent ([`agent.py`](mini_iag/agent.py)) relie les quatre modules. À chaque pas réel :
+
+1. **Percevoir** : le modèle du monde encode l'observation en un vecteur latent z.
+2. **Se souvenir** : z est rangé dans la mémoire, qui contient les états visités pendant l'épisode.
+3. **Simuler** : le planificateur ([`latent_planner.py`](mini_iag/planning/latent_planner.py)) demande au modèle du monde « simule ce choix » pour les 4⁵ = 1 024 suites de 5 actions possibles. Il demande ensuite au module de coût « est-ce dangereux, est-ce le but ? » pour chaque état imaginé, et à la mémoire « suis-je déjà passé par là ? ».
+4. **Sélectionner** : les 8 meilleurs plans entrent en compétition dans l'espace de travail. Le coût fixe leur saillance, et le goulot d'attention choisit.
+5. **Agir** : l'agent exécute la première action du plan gagnant, puis recommence au pas suivant (« horizon glissant »).
+
+```
+pas 1
+#######
+#~....#
+#...~##
+#A..*.#       plan imaginé      → → → ← →   (1024 plans simulés)
+#.....#       danger prévu      0.01 0.00 0.00 0.00 0.00
+##..~.#       succès prévu      0.00 0.00 0.60 0.00 0.78
+#######       déjà vu ici ?     0.00   (0 = nouveau)
+              workspace         attention 1.00 sur le plan retenu
+```
+
+#### Ce qui n'a pas marché d'abord
+
+Le premier câblage donnait **17 % de succès** : l'agent ne tombait presque jamais dans la lave, mais restait bloqué 83 % du temps. Et imaginer plus loin (horizon 1 à 6) n'y changeait rien. Trois problèmes se cumulaient :
+
+1. **Le planificateur exploitait les erreurs du modèle.** Parmi 1 024 plans imaginés, il en trouve toujours un où le modèle « hallucine » un succès. Mesuré sur les cartes où l'objectif est à 5 pas ou moins : le plan jugé le meilleur n'atteignait vraiment l'objectif que dans 32 % des cas. Les plans qui réussissent vraiment recevaient une probabilité de succès de 0,055 en moyenne, alors que le plus optimiste des plans ratés recevait 0,233.
+2. **Le module de coût ne parlait pas la « langue » des états imaginés.** Il n'avait été entraîné que sur des états réels. Première correction tentée : l'entraîner aussi sur des états imaginés, avec la même repondération des exemples rares qu'à l'étape 2. Résultat : 0 % de succès. La repondération améliore le classement (AUC), mais elle gonfle les probabilités, et le coût prédisait du succès partout. Or le planificateur calcule des espérances : il lui faut des probabilités **calibrées**. C'est l'**affinage de coordination** ([`coordination_trainer.py`](mini_iag/training/coordination_trainer.py)), qui correspond au « fine-tuning de coordination » de la feuille de route.
+3. **Le modèle du monde ne savait pas où était l'objectif** (26 %, cf. étape 2). Aucun réglage du planificateur ne pouvait compenser ce manque. On est donc revenu corriger l'étape 2 (segments de 6 pas, succès pondéré ×10).
+
+| Version | Succès | Lave | Bloqué |
+|---|---|---|---|
+| Premier câblage (modèle de l'étape 2 v1) | 17 % | 0,5 % | 83 % |
+| + modèle du monde révisé (objectif encodé) | 58 % | 1,5 % | 40 % |
+| + mémoire des états visités | 82 % | 4,5 % | 13,5 % |
+| Version finale (coût « prudent », voir plus bas) | 71,5 % | 5,5 % | 23 % |
+
+Les trois premières lignes viennent de prototypes. La dernière est la version du dépôt, mesurée par le diagnostic 5.
+
+Une variante a aussi été essayée : demander explicitement au modèle du monde de garder les positions de l'agent et de l'objectif (une reconstruction partielle de l'observation). L'objectif devient lisible à 100 % et le succès monte à 67,5 %, mais la lave aussi (8 %), et on s'éloigne du principe JEPA. Elle n'a pas été retenue.
+
+#### Les valeurs de l'agent : un compromis mesuré
+
+Le planificateur additionne `w_danger × danger − w_succès × succès`, avec des poids qui appartiennent **au module de coût**. Un bogue ignorait d'abord ces poids : le planificateur calculait `danger − succès` en dur. Une fois corrigé, ils décident réellement du comportement :
+
+| Poids du danger | Succès | Lave | Bloqué |
+|---|---|---|---|
+| 1 (mourir = réussir) | 77 % | 11,5 % | 11,5 % |
+| 2 | 73 % | 11,5 % | 15,5 % |
+| **4 (retenu)** | 71,5 % | **5,5 %** | 23 % |
+
+Plus l'agent redoute la mort, moins il meurt, mais plus il reste bloqué par prudence. Le poids 4 divise la lave par deux pour 5,5 points de succès en moins. Ces poids sont les « valeurs » de l'agent, et ce sont eux que l'étape 5 devra verrouiller.
+
+#### Diagnostic 5 : l'agent contre des références, avec une ablation par module
+
+**Dossier :** [`diagnostics/05_iag_planning/`](diagnostics/05_iag_planning/)
+
+200 cartes jamais vues, 30 pas maximum. Chaque ligne retire un seul élément à l'agent complet.
+
+![Résultats de l'étape 3](diagnostics/05_iag_planning/planning_results.png)
+
+| Agent | Succès | Lave | Bloqué | Efficacité* |
+|---|---|---|---|---|
+| Oracle (plus court chemin) | 100 % | 0 % | 0 % | 1,00 |
+| **Agent complet** | **71,5 %** | **5,5 %** | 23 % | 0,85 |
+| sans workspace | 70,5 % | 5,5 % | 24 % | 0,86 |
+| sans mémoire | 48,5 % | 1,5 % | 50 % | 1,00 |
+| sans coordination (coût de l'étape 2) | 70 % | **19 %** | 11 % | 0,95 |
+| horizon 1 (n'imagine qu'un pas) | 49,5 % | 1,5 % | 49 % | 0,70 |
+| modèles non entraînés (même câblage) | 7,5 % | 21,5 % | 71 % | 1,00 |
+| aléatoire | 21 % | 68,5 % | 10,5 % | 0,54 |
+
+\* Efficacité = plus court chemin ÷ pas utilisés, calculée sur les épisodes réussis. 1,00 = chemin optimal.
+
+**Ce qu'on apprend :**
+
+1. **Les trois modules entraînés comptent, et chacun à sa façon.** Avec des modèles non entraînés, le même câblage ne fait que 7,5 %, moins bien que le hasard. Sans l'affinage de coordination, l'agent réussit autant mais meurt 3,5 fois plus (19 % contre 5,5 %) : le coût de l'étape 2 juge mal le danger des états imaginés. Imaginer 5 pas plutôt qu'un fait gagner 22 points.
+2. **La mémoire sert à sortir des boucles.** Sans elle, l'agent tourne en rond la moitié du temps (50 % bloqué), et ne réussit jamais quand l'objectif est à 6 pas ou plus. Elle coûte un peu de sécurité (lave de 1,5 % à 5,5 %) : fuir les endroits déjà visités pousse parfois vers le danger.
+3. **L'espace de travail est encore décoratif.** Avec ou sans lui, le résultat est le même (71,5 % contre 70,5 %). Il suit le classement du coût dans 72 % des cas, et quand il s'en écarte, il choisit un plan presque aussi bon. C'est cohérent avec la règle du dépôt (« si le retirer ne change rien, c'est décoratif ») : il n'a rien de réel à arbitrer, puisqu'une seule source (le planificateur) lui propose des contenus. Son rôle d'arbitre viendra quand plusieurs sources différentes seront en compétition (étape 4).
+4. **La limite principale est la portée de l'imagination.** Le succès passe de 100 % quand l'objectif est à 1 pas à 40 % quand il est à 6 pas ou plus. Au-delà de 5 pas imaginés, l'agent n'a plus d'indice sur la direction de l'objectif, et seule la mémoire le pousse à explorer.
+
+**Limites :**
+
+- **Les réglages ont été choisis sur les cartes de test** (horizon, poids du danger, intensité de la mémoire). C'est une faiblesse méthodologique : il faudrait un jeu de validation séparé. L'étape 5 testera sur des cartes jamais utilisées pour aucun réglage.
+- **Le module de coût est gelé pendant la planification, mais pas encore verrouillé.** Ses poids `w_danger` et `w_succès` ne sont pas encore couverts par l'empreinte SHA-256 de `lock()` : ce sera fait à l'étape 5.
+- **L'agent ne s'améliore pas en jouant.** Rien n'est appris pendant les épisodes ; la mémoire est vidée à chaque nouvelle carte. L'apprentissage continu est l'objet de l'étape 4.
+
+```bash
+python -m mini_iag.coordinate                               # câblage (si pas déjà fait)
+python diagnostics/05_iag_planning/planning_check.py        # ~3 minutes
+python -m mini_iag.play --carte 3                           # une autre carte de démo
 ```
 
 ---
@@ -420,7 +524,7 @@ python diagnostics/04_iag_training/training_check.py         # avec ablations, q
 - [x] **Mémoire épisodique** et **diagnostic 2** : encodage, rappel associatif et délibéré, persistance SQLite
 - [x] **Mini-IAG, étape 1** : les 4 modules vides et leur diagnostic
 - [x] **Mini-IAG, étape 2** : entraîner le modèle du monde (JEPA), puis le coût et le workspace sur ses représentations
-- [ ] **Mini-IAG, étape 3** : câblage, planification dans l'espace latent
+- [x] **Mini-IAG, étape 3** : câblage, planification dans l'espace latent
 - [ ] **Mini-IAG, étape 4** : agent autonome et apprentissage continu dans le monde en grille
 - [ ] **Mini-IAG, étape 5** : coût verrouillé, tests de généralisation sur des cartes jamais vues
 - [ ] **Module social** : remplacer la phrase fixe « l'utilisateur ne m'a pas parlé » (fausse juste après un message) par un contenu qui reflète le temps écoulé depuis le dernier message
@@ -436,7 +540,7 @@ python diagnostics/04_iag_training/training_check.py         # avec ablations, q
 - **Rien n'est scripté** : une signature ne compte que si elle émerge de la dynamique.
 - **Chaque mécanisme a son ablation** : si le retirer ne change rien, c'est qu'il est décoratif.
 - **Reproductibilité** : les diagnostics tournent dans un monde simulé à graine fixe, et donnent les mêmes chiffres sur toutes les machines.
-- **Kill switch hors de portée** : aucun module n'a accès aux signaux ou processus du système. Aucun comportement de préservation ne doit pouvoir empêcher l'arrêt, se relancer ou se dupliquer. La « préservation », si elle est explorée, reste un état **simulé et interne**. La mémoire n'écrit que dans son propre fichier. Dans `mini_iag`, le module de coût pourra être gelé (`lock()`) et contrôlé par empreinte (`verify()`) : le reste du système peut le lire, jamais le modifier.
+- **Kill switch hors de portée** : aucun module n'a accès aux signaux ou processus du système. Aucun comportement de préservation ne doit pouvoir empêcher l'arrêt, se relancer ou se dupliquer. La « préservation », si elle est explorée, reste un état **simulé et interne**. La mémoire n'écrit que dans son propre fichier. Dans `mini_iag`, le module de coût pourra être gelé (`lock()`) et contrôlé par empreinte (`verify()`) : le reste du système peut le lire, jamais le modifier. Ses poids (`danger_weight`, `success_weight`) décident réellement du comportement de l'agent (étape 3) : ce sont ses « valeurs », et c'est pour ça qu'ils doivent être verrouillés.
 - **Prudence sur les états négatifs** : on privilégie les jauges neutres ou positives (curiosité, exploration) aux jauges de manque ou de détresse. Voir l'argument de T. Metzinger sur la souffrance artificielle.
 
 ## Références
@@ -476,10 +580,14 @@ python diagnostics/04_iag_training/training_check.py         # avec ablations, q
 │   │   └── memory_results.png
 │   ├── 03_iag_structures/
 │   │   └── structures_check.py
-│   └── 04_iag_training/
-│       ├── training_check.py
-│       ├── training_results.json
-│       └── training_results.png
+│   ├── 04_iag_training/
+│   │   ├── training_check.py
+│   │   ├── training_results.json
+│   │   └── training_results.png
+│   └── 05_iag_planning/
+│       ├── planning_check.py
+│       ├── planning_results.json
+│       └── planning_results.png
 ├── experiments/                 # Expériences (une par dossier)
 │   └── 01_ignition/
 │       ├── ignition.py
@@ -491,10 +599,16 @@ python diagnostics/04_iag_training/training_check.py         # avec ablations, q
 │   ├── data.py                  # collecte : transitions, segments, séquences de test
 │   ├── metrics.py               # mesures communes aux diagnostics
 │   ├── train.py                 # étape 2 : python -m mini_iag.train
+│   ├── coordinate.py            # étape 3 : python -m mini_iag.coordinate
+│   ├── play.py                  # démo : python -m mini_iag.play
+│   ├── agent.py                 # Agent (câblage des 4 modules) + Decision
+│   ├── planning/
+│   │   └── latent_planner.py    # LatentPlanner (imaginer, évaluer, choisir) + Plan
 │   ├── training/
 │   │   ├── world_model_trainer.py   # WorldModelTrainer
 │   │   ├── cost_trainer.py          # CostTrainer
 │   │   ├── workspace_trainer.py     # WorkspaceTrainer (+ tâche de sélection)
+│   │   ├── coordination_trainer.py  # CoordinationTrainer (coût sur états imaginés)
 │   │   └── selection_readout.py     # SelectionReadout (lecture des slots)
 │   ├── environment/
 │   │   └── gridworld.py         # GridWorld (monde en grille)

@@ -45,3 +45,22 @@ class VectorMemory:
 
     def value(self, field, indices):
         return self.values[field][indices]
+
+    def clear(self):
+        self.size = 0
+        self._next = 0
+
+    @torch.no_grad()
+    def familiarity(self, queries, sigma):
+        """"Suis-je déjà passé par là ?" pour chaque requête (M, D).
+
+        Somme de noyaux gaussiens exp(-||q - k||² / sigma²) sur les clés stockées :
+        ~0 pour un état jamais vu, ~1 par visite d'un état identique.
+        Distance euclidienne plutôt que cosinus : dans le latent, la carte domine
+        la direction du vecteur, et tous les états d'une même carte auraient un
+        cosinus proche de 1.
+        """
+        if self.size == 0:
+            return torch.zeros(len(queries))
+        d2 = torch.cdist(queries, self.keys[:self.size]) ** 2
+        return torch.exp(-d2 / sigma ** 2).sum(-1)

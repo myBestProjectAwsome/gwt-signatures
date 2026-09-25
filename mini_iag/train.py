@@ -35,13 +35,16 @@ def train(out="checkpoints/step2.pt", verbose=True):
     say(f"Collecte : {TRAIN_MAPS} cartes d'entraînement, {TEST_MAPS} cartes de test...")
     train_data = collect(cfg, n_maps=TRAIN_MAPS, seed=TRAIN_SEED)
     test_data = collect(cfg, n_maps=TEST_MAPS, seed=TEST_SEED)
-    segments = collect_segments(cfg, n_maps=TRAIN_MAPS, seed=TRAIN_SEED)
-    say(f"  {len(train_data)} transitions et {len(segments)} segments de 3 pas "
+    segments = collect_segments(cfg, n_maps=TRAIN_MAPS, horizon=cfg.multistep_horizon,
+                                seed=TRAIN_SEED)
+    say(f"  {len(train_data)} transitions et {len(segments)} segments de "
+        f"{cfg.multistep_horizon} pas "
         f"d'entraînement, {len(test_data)} transitions de test\n")
 
-    say("1/3 Modèle du monde (JEPA + dynamique inverse + événements, 1 et 3 pas)")
-    wm_log = WorldModelTrainer(arch.world_model).fit(train_data, test_data, segments,
-                                                     verbose=verbose)
+    say(f"1/3 Modèle du monde (JEPA + dynamique inverse + événements, 1 et "
+        f"{cfg.multistep_horizon} pas)")
+    wm_log = WorldModelTrainer(arch.world_model, success_weight=cfg.success_event_weight).fit(
+        train_data, test_data, segments, verbose=verbose)
     for p in arch.world_model.parameters():             # gelé pour la suite
         p.requires_grad = False
 
@@ -50,13 +53,13 @@ def train(out="checkpoints/step2.pt", verbose=True):
 
     say("\n3/3 Espace de travail (attention sélective sous goulot)")
     readout = SelectionReadout(cfg)
-    ws_log = WorkspaceTrainer(arch.workspace, readout, arch.world_model).fit(
-        train_data.next_obs, test_data.next_obs, verbose=verbose)
+    ws_trainer = WorkspaceTrainer(arch.workspace, readout, arch.world_model)
+    ws_log = ws_trainer.fit(train_data.next_obs, test_data.next_obs, verbose=verbose)
 
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     torch.save({"config": asdict(cfg), "architecture": arch.state_dict(),
-                "readout": readout.state_dict(),
+                "readout": readout.state_dict(), "cue": ws_trainer.cue,
                 "log": {"world_model": wm_log, "cost": cost_log, "workspace": ws_log}}, out)
     say(f"\nTerminé en {time.time() - t0:.0f} s. Sauvegardé dans {out}")
     return arch, readout, {"world_model": wm_log, "cost": cost_log, "workspace": ws_log}
