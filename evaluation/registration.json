@@ -1,0 +1,17 @@
+{
+ "date": "2026-09-26T14:53:51+02:00",
+ "seuil_V1": 0.75,
+ "fichiers_figés": {
+  "evaluation/PROTOCOLE.md": "a6efaa89958b2b226c5ba638615c31f843aa31bd9a22d46e7821361286e76c3d",
+  "evaluation/tasks.py": "0e5291eaa5814ab98bf3a736808d025c30a128b414300ff8480be7edf22cc323",
+  "evaluation/layouts.py": "6bf0e15e46b0015c190762dbc2a37850664f1de31aef7439c3116044ff4daea8",
+  "evaluation/battery.py": "2c94313b04e1c7df0012d5b008ff8b7a298e0919ba515718d9797b28b4f1aaf3",
+  "evaluation/isolation.py": "ead19c8883838e94a99feac789e0636f5c49643fca2da3d6765fee2edea856e1",
+  "mini_iag/tasks/task.py": "555442031d918cf3c3e5c7446a29a2f3e14ca89f7308d536c687628d630b803a",
+  "mini_iag/tasks/tracker.py": "a37908972bd102690af6ceaf951d8f7e5ad54cf243fa0742d675cd805d3ffe3c",
+  "mini_iag/tasks/search.py": "0469c2f5db21535705302f7d0245158cac6dfabbb3b2da85c34a0d39e2f73ea9"
+ },
+ "fichiers_informatifs": {
+  "mini_iag/environment/keydoor_world.py": "0ec9e9b09e2fb84eb272ccc52318dc21c5f219b0b41a2aa03fcb182ca0e53dbb"
+ }
+}

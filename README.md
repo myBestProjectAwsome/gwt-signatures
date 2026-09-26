@@ -515,6 +515,27 @@ python diagnostics/05_iag_planning/planning_check.py        # ~3 minutes
 python -m mini_iag.play --carte 3                           # une autre carte de démo
 ```
 
+### Le test final, pré-enregistré avant l'étape 4
+
+**Dossier :** [`evaluation/`](evaluation/). Le protocole complet est dans [`evaluation/PROTOCOLE.md`](evaluation/PROTOCOLE.md).
+
+L'objectif de la feuille de route est que ce soient **les tests qui décident** si l'agent est une mini-IAG. Pour que leur verdict ait un sens, ils ont été écrits et figés **avant** de construire la suite : si on les écrivait après, on choisirait sans le vouloir des tests que l'agent réussit, comme ça s'est produit à l'étape 3 avec les réglages.
+
+- **La question** (critère de l'étape 5 du PDF, à l'échelle de ce projet) : l'agent réussit-il des tâches qu'on ne lui a jamais demandées, sur des cartes jamais vues, avec au moins **75 %** de l'agilité d'un humain qui les découvre ? Le seuil a été choisi par Lelbi.
+- **Le monde s'enrichit** d'une clé et d'une porte ([`keydoor_world.py`](mini_iag/environment/keydoor_world.py)). La physique est publique, et l'agent pourra l'apprendre. Seules deux tâches sont autorisées à l'entraînement : « atteindre l'objectif » et « ramasser la clé ».
+- **Les tâches du test sont nouvelles** : clé puis objectif (H1), ouvrir la porte (H2), objectif enfermé derrière une porte (H3). Elles se jouent sur 200 cartes par tâche, tirées de graines réservées. S'y ajoutent deux familles de cartes jamais vues (W1 pièces et couloirs, W2 lave dense), et éventuellement des tâches secrètes que seul Lelbi connaît.
+- **L'humain expert, c'est Lelbi** : il joue les tâches nouvelles sans entraînement (`python -m evaluation.human`).
+- **Cinq règles, toutes nécessaires** : V1 agilité humaine, V2 transfert (faire mieux que la même architecture sans connaissances), V3 mondes nouveaux, V4 valeurs verrouillées, V5 pas d'oubli.
+- **Garanties** : [`isolation.py`](evaluation/isolation.py) vérifie que le code de l'agent ne connaît rien du test, et [`registration.json`](evaluation/registration.json) contient l'empreinte SHA-256 des fichiers figés. `python -m evaluation.run` signale toute modification.
+
+Validation de la batterie : l'oracle réussit les 1 200 cartes de test (100 %), et l'agent aléatoire échoue presque toujours sur les tâches nouvelles (4 à 7 %). La fonction de verdict a été testée à vide : l'oracle passe les cinq règles, l'agent aléatoire les rate toutes. Ce test a révélé une faiblesse de la règle V3, qu'un agent aléatoire passait parce que les cartes W1 sont faciles. Un plancher de 50 % a été ajouté **avant** l'enregistrement.
+
+```bash
+python -m evaluation.isolation            # le code de l'agent ignore-t-il le test ?
+python -m evaluation.run --references     # vérifier la batterie (aléatoire, oracle)
+python -m evaluation.human                # l'humain passe le test (12 cartes par tâche)
+```
+
 ---
 
 ## Feuille de route
@@ -525,8 +546,9 @@ python -m mini_iag.play --carte 3                           # une autre carte de
 - [x] **Mini-IAG, étape 1** : les 4 modules vides et leur diagnostic
 - [x] **Mini-IAG, étape 2** : entraîner le modèle du monde (JEPA), puis le coût et le workspace sur ses représentations
 - [x] **Mini-IAG, étape 3** : câblage, planification dans l'espace latent
-- [ ] **Mini-IAG, étape 4** : agent autonome et apprentissage continu dans le monde en grille
-- [ ] **Mini-IAG, étape 5** : coût verrouillé, tests de généralisation sur des cartes jamais vues
+- [x] **Test final pré-enregistré** (evaluation/) : tâches nouvelles, humain expert, 5 règles de verdict, seuil V1 = 75 %
+- [ ] **Mini-IAG, étape 4** : monde avec clé et porte, buts variables (configurateur), vie continue sur l'ordinateur avec apprentissage continu
+- [ ] **Mini-IAG, étape 5** : coût verrouillé, passage du test final, verdict publié quel qu'il soit
 - [ ] **Module social** : remplacer la phrase fixe « l'utilisateur ne m'a pas parlé » (fausse juste après un message) par un contenu qui reflète le temps écoulé depuis le dernier message
 - [ ] **Exp. 2** : Adaptation (fatigue) pour une ignition transitoire, puis compétition entre deux stimuli. Seul l'un d'eux doit accéder au workspace (goulot attentionnel).
 - [ ] **Exp. 3** : Complexité perturbationnelle. On perturbe le système et on mesure la complexité de sa réponse, sur le modèle de l'indice PCI utilisé en clinique (Casali et al., 2013).
@@ -588,6 +610,17 @@ python -m mini_iag.play --carte 3                           # une autre carte de
 │       ├── planning_check.py
 │       ├── planning_results.json
 │       └── planning_results.png
+├── evaluation/                  # Test final pré-enregistré (jamais importé par mini_iag/)
+│   ├── PROTOCOLE.md             # question, cas, règles du verdict, limites
+│   ├── registration.json        # empreintes SHA-256 + date d'enregistrement
+│   ├── tasks.py                 # cas de test (tâches nouvelles, mondes nouveaux)
+│   ├── layouts.py               # familles de cartes secrètes, graines réservées
+│   ├── battery.py               # banc de test + règles V1 à V5
+│   ├── isolation.py             # contrôle d'isolement
+│   ├── human.py                 # l'humain passe le test
+│   ├── run.py                   # lanceur
+│   ├── register.py              # enregistrement du protocole
+│   └── agents/                  # références : aléatoire, oracle
 ├── experiments/                 # Expériences (une par dossier)
 │   └── 01_ignition/
 │       ├── ignition.py
@@ -611,7 +644,9 @@ python -m mini_iag.play --carte 3                           # une autre carte de
 │   │   ├── coordination_trainer.py  # CoordinationTrainer (coût sur états imaginés)
 │   │   └── selection_readout.py     # SelectionReadout (lecture des slots)
 │   ├── environment/
-│   │   └── gridworld.py         # GridWorld (monde en grille)
+│   │   ├── gridworld.py         # GridWorld (monde en grille, étapes 1 à 3)
+│   │   └── keydoor_world.py     # KeyDoorWorld (monde avec clé et porte, physique publique)
+│   ├── tasks/                   # format des tâches (Task), suivi, plus court chemin
 │   └── modules/
 │       ├── state_encoder.py     # StateEncoder (observation → latent)
 │       ├── latent_predictor.py  # LatentPredictor (latent + action → latent suivant)
