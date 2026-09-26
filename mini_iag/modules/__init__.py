@@ -5,7 +5,9 @@ from .event_predictor import EventPredictor
 from .world_model import WorldModel
 from .bottleneck_workspace import BottleneckWorkspace
 from .cost_module import CostModule
+from .configurable_cost import ConfigurableCost, EVENT_INDEX
 from .vector_memory import VectorMemory
+from .critic import Critic
 
 __all__ = ["StateEncoder", "LatentPredictor", "InverseDynamics", "EventPredictor", "WorldModel",
-           "BottleneckWorkspace", "CostModule", "VectorMemory"]
+           "BottleneckWorkspace", "CostModule", "ConfigurableCost", "EVENT_INDEX", "VectorMemory", "Critic"]

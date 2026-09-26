@@ -45,8 +45,8 @@ class WorldModelTrainer:
                 row = {"iter": it, **{k: v.item() for k, v in terms.items()}}
                 if test is not None:
                     self.wm.eval()
-                    row["S1"] = action_identification(self.wm, test.obs, test.action,
-                                                      test.next_obs)[0]
+                    row["S1"] = action_identification(self.wm, test.obs.float(), test.action,
+                                                      test.next_obs.float())[0]
                     self.wm.train()
                 self.log.append(row)
                 if verbose:

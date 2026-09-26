@@ -10,7 +10,9 @@ class Config:
     """
     # Monde
     grid_size: int = 7          # grille 7x7, bordure de murs comprise
-    channels: int = 4           # mur, lave, objectif, agent
+    channels: int = 4           # mur, lave, objectif, agent (monde v2 : 7, cf. Config.keydoor)
+    n_events: int = 2           # événements prédits (v1 : lave, objectif ; v2 : 4)
+    pair_events: bool = False   # v2 : événements jugés sur une TRANSITION (avant, après)
     n_actions: int = 4          # haut, bas, gauche, droite
     n_lava: int = 3
     n_inner_walls: int = 2
@@ -42,5 +44,18 @@ class Config:
     step_penalty: float = 0.02  # chaque pas coûte un peu : préférer les chemins courts
     novelty_weight: float = 0.02  # pénalité pour retourner dans un état déjà visité
     max_steps: int = 30
+    value_weight: float = 1.0   # poids de la critique au bout de l'horizon (monde v2)
+    value_discount: float = 0.9
 
     seed: int = 0
+
+    @classmethod
+    def keydoor(cls, **kw):
+        """Configuration du monde v2 (clé, porte) : 7 canaux, 4 événements jugés sur
+        des transitions, latent de 64 (32 ne suffisait plus : clé et lave mal
+        représentées, cf. README étape 4)."""
+        base = dict(channels=7, n_events=4, pair_events=True, latent_dim=64,
+                    predictor_hidden=128, cost_hidden=64,
+                    value_weight=0.0)   # critique entraînée mais non utilisée : son
+                                        # ablation montre qu'elle n'aide pas (README, étape 4a)
+        return cls(**{**base, **kw})

@@ -43,6 +43,9 @@ class WorldModel(nn.Module):
         self.predictor = LatentPredictor(cfg)
         self.inverse = InverseDynamics(cfg)
         self.events = EventPredictor(cfg)
+        # monde v2 : un événement (clé ramassée, porte ouverte) se voit dans le
+        # CHANGEMENT d'état, pas dans l'état d'arrivée seul
+        self.pair_events = cfg.pair_events
         self.ema_decay = cfg.ema_decay
 
     def encode(self, obs):
@@ -61,9 +64,18 @@ class WorldModel(nn.Module):
         return torch.stack(traj, dim=1)
 
     # ------------------------------------------------------------ apprentissage
+    def event_logits(self, z_prev, z_next):
+        if self.pair_events:
+            return self.events(torch.cat([z_prev, z_next], dim=-1))
+        return self.events(z_next)
+
     def _event_loss(self, logits, events, success_weight, reduction="mean"):
-        """BCE des événements ; le succès (rare) peut être surpondéré."""
-        pw = torch.tensor([1.0, success_weight], device=logits.device)
+        """BCE des événements ; les événements rares peuvent être surpondérés.
+        Monde v1 : (lave, objectif) -> poids (1, success_weight).
+        Monde v2 : poids fournis par self.event_pos_weight (un par événement)."""
+        pw = getattr(self, "event_pos_weight", None)
+        if pw is None:
+            pw = torch.tensor([1.0, success_weight], device=logits.device)
         return F.binary_cross_entropy_with_logits(logits, events, pos_weight=pw,
                                                   reduction=reduction)
 
@@ -86,8 +98,9 @@ class WorldModel(nn.Module):
                  + cov_weight * terms["covariance"] + inv_weight * terms["inverse"])
         if next_events is not None and event_weight > 0:
             # sur l'état réel (forme l'encodeur) ET sur l'état imaginé (forme le prédicteur)
-            terms["events"] = (self._event_loss(self.events(z_next), next_events, success_weight)
-                               + self._event_loss(self.events(pred), next_events, success_weight))
+            terms["events"] = (
+                self._event_loss(self.event_logits(z, z_next), next_events, success_weight)
+                + self._event_loss(self.event_logits(z, pred), next_events, success_weight))
             total = total + event_weight * terms["events"]
         return total, terms
 
@@ -98,10 +111,12 @@ class WorldModel(nn.Module):
         B, H = actions.shape
         with torch.no_grad():
             targets = self.target_encoder(visited.flatten(0, 1)).view(B, H, -1)
-        traj = self.rollout(self.encoder(obs), actions)                # (B, H, D)
+        z0 = self.encoder(obs)
+        traj = self.rollout(z0, actions)                              # (B, H, D)
+        prev = torch.cat([z0.unsqueeze(1), traj[:, :-1]], dim=1)
         mask = alive.float()
         mse = ((traj - targets) ** 2).mean(-1)
-        bce = self._event_loss(self.events(traj), events, success_weight,
+        bce = self._event_loss(self.event_logits(prev, traj), events, success_weight,
                                reduction="none").mean(-1)
         n = mask.sum().clamp_min(1)
         return ((mse + event_weight * bce) * mask).sum() / n

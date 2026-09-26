@@ -37,19 +37,24 @@ class Plan:
 
 
 class LatentPlanner:
-    def __init__(self, world_model, cost, cfg, memory=None, novelty_sigma=1.0):
-        self.wm, self.cost, self.cfg = world_model, cost, cfg
+    def __init__(self, world_model, cost, cfg, memory=None, novelty_sigma=1.0, critic=None):
+        self.wm, self.cost, self.cfg, self.critic = world_model, cost, cfg, critic
         self.memory, self.sigma = memory, novelty_sigma
         self.horizon = cfg.planning_horizon
         self.plans = torch.tensor(list(itertools.product(range(cfg.n_actions),
                                                          repeat=self.horizon)))
 
     @torch.no_grad()
-    def plan(self, z):
-        """z : (1, D) état latent actuel. Renvoie un Plan."""
+    def plan(self, z, forbidden=()):
+        """z : (1, D) état latent actuel. forbidden : premières actions à exclure
+        (l'agent a constaté qu'elles ne font rien ici). Renvoie un Plan."""
         P, H, cfg = self.plans, self.horizon, self.cfg
         traj = self.wm.rollout(z.expand(len(P), -1), P)                 # (N, H, D) imaginé
-        danger, success, _ = self.cost(traj.flatten(0, 1))
+        if getattr(self.cost, "pair_input", False):                     # monde v2 : transitions
+            prev = torch.cat([z.expand(len(P), -1).unsqueeze(1), traj[:, :-1]], dim=1)
+            danger, success, _ = self.cost.evaluate(prev.flatten(0, 1), traj.flatten(0, 1))
+        else:
+            danger, success, _ = self.cost(traj.flatten(0, 1))
         danger, success = danger.view(len(P), H), success.view(len(P), H)
         stop = (danger + success).clamp(0, 1)
         alive = torch.cumprod(torch.cat([torch.ones(len(P), 1), 1 - stop[:, :-1]], 1), 1)
@@ -62,6 +67,15 @@ class LatentPlanner:
         else:
             fam = torch.zeros(len(P), H)
         scores = (weight * (step_cost + cfg.novelty_weight * fam)).sum(1)
+        if self.critic is not None and cfg.value_weight > 0:
+            # au-delà de l'horizon : la critique estime la proximité de l'événement visé
+            alive_end = alive[:, -1] * (1 - stop[:, -1])
+            value = self.critic.value(traj[:, -1], self.cost.target)
+            scores = scores - (cfg.value_weight * self.cost.w_success
+                               * cfg.discount ** H * alive_end * value)
+        if forbidden and len(set(forbidden)) < cfg.n_actions:
+            scores = scores.masked_fill(torch.isin(P[:, 0], torch.tensor(sorted(forbidden))),
+                                        float("inf"))
         ranking = scores.argsort()
         best = int(ranking[0])
         return Plan(action=int(P[best, 0]), actions=P[best].tolist(),

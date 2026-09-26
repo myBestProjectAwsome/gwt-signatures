@@ -28,9 +28,16 @@ class CoordinationTrainer:
     @torch.no_grad()
     def _dataset(self, segments):
         B, H = segments.actions.shape
-        imagined = self.wm.rollout(self.wm.encode(segments.obs), segments.actions)
-        real = self.wm.target_encoder(segments.visited.flatten(0, 1)).view(B, H, -1)
+        z0 = self.wm.encode(segments.obs.float())
+        imagined = self.wm.rollout(z0, segments.actions)
+        real = self.wm.target_encoder(segments.visited.flatten(0, 1).float()).view(B, H, -1)
         m = segments.alive
+        if getattr(self.cost, "pair_input", False):          # monde v2 : transitions
+            prev_i = torch.cat([z0.unsqueeze(1), imagined[:, :-1]], dim=1)
+            r0 = self.wm.target_encoder(segments.obs.float()).unsqueeze(1)
+            prev_r = torch.cat([r0, real[:, :-1]], dim=1)
+            imagined = torch.cat([prev_i, imagined], dim=-1)
+            real = torch.cat([prev_r, real], dim=-1)
         x = torch.cat([imagined[m], real[m]])
         y = torch.cat([segments.events[m], segments.events[m]])
         return x, y

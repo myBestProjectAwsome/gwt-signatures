@@ -26,7 +26,8 @@ class Transitions:
     def batch(self, size, generator=None):
         """(obs, action, obs suivante, événements perçus dans l'obs suivante)."""
         i = torch.randint(len(self), (size,), generator=generator)
-        return self.obs[i], self.action[i], self.next_obs[i], self.next_events[i]
+        return (self.obs[i].float(), self.action[i], self.next_obs[i].float(),
+                self.next_events[i])
 
     @property
     def next_events(self):

@@ -16,9 +16,10 @@ class EventPredictor(nn.Module):
 
     def __init__(self, cfg):
         super().__init__()
+        in_dim = cfg.latent_dim * (2 if cfg.pair_events else 1)
         self.net = nn.Sequential(
-            nn.Linear(cfg.latent_dim, cfg.predictor_hidden), nn.ReLU(),
-            nn.Linear(cfg.predictor_hidden, 2),
+            nn.Linear(in_dim, cfg.predictor_hidden), nn.ReLU(),
+            nn.Linear(cfg.predictor_hidden, cfg.n_events),
         )
 
     def forward(self, z):

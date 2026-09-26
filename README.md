@@ -536,6 +536,61 @@ python -m evaluation.run --references     # vérifier la batterie (aléatoire, o
 python -m evaluation.human                # l'humain passe le test (12 cartes par tâche)
 ```
 
+### Étape 4a : Des buts variables (le configurateur)
+
+```bash
+python -m mini_iag.train_keydoor                   # ~6 minutes, écrit checkpoints/step4.pt
+python diagnostics/06_iag_tasks/tasks_check.py     # ~12 minutes
+```
+
+**Règle de construction.** Pendant cette étape, l'agent n'a **jamais** été évalué sur les tâches ni sur les cartes du test final. Tout le développement s'est fait sur des tâches publiques : « objectif », « clé », et une tâche de développement, « objectif puis clé ». Celle-ci enchaîne deux tâches publiques et ne fait pas partie du test. L'événement « porte » est appris comme une loi de la physique du monde, mais aucune tâche ne l'a jamais demandé.
+
+#### Ce qui a été construit
+
+- **Le modèle du monde v2** apprend la physique du monde avec clé et porte à partir de 150 000 pas d'un agent qui marche au hasard, sans aucune récompense.
+- **Le configurateur** ([`configurable_cost.py`](mini_iag/modules/configurable_cost.py)) : le module de coût estime la probabilité de chaque événement (objectif, clé, porte, lave), et la tâche en cours choisit lequel compte comme succès. Changer de tâche, c'est changer d'événement visé, sans rien réapprendre.
+- **L'agent à tâches** ([`task_agent.py`](mini_iag/task_agent.py)) réalise une tâche sous-but par sous-but. Il détecte lui-même les événements en comparant ce qu'il voit avant et après chaque action ([`event_detector.py`](mini_iag/event_detector.py)) : personne ne lui dit « tu as ramassé la clé ».
+- **L'apprentissage par surprise** : si une action ne change rien à ce que voit l'agent (un mur, une porte fermée), il note qu'elle est inutile dans cette situation et ne la retente pas.
+
+#### Quatre problèmes rencontrés, dans l'ordre
+
+| Problème constaté | Cause | Correction |
+|---|---|---|
+| « clé » : 17 %, moins bien que le hasard | Latent de 32 : clé lisible à 30 %, lave mal imaginée | Latent de **64** |
+| Succès effondré dès que la cible est à plus de 6 pas | Horizon d'imagination de 5 pas | Critique (valeur) apprise dans l'imagination, **finalement non retenue** (voir ci-dessous) |
+| L'agent pousse jusqu'à 20 fois de suite contre un mur ou une porte fermée | Parmi 1 024 plans, le planificateur trouve toujours celui où le modèle croit le mur franchissable. Pour les portes sans clé, le modèle se trompe vraiment (erreur de prédiction 9,0 contre 3,6 pour les murs). | **Apprentissage par surprise** |
+| Succès prévu nul pour la clé, même à 2 pas | Le coût jugeait un **état**. Or « clé ramassée » ne se voit pas sur l'état d'arrivée seul : un agent qui porte la clé depuis dix pas lui ressemble. La critique pénalisait même les plans qui ramassent la clé. | Coût, événements et critique jugés sur des **transitions** (état avant, état après) |
+
+#### Diagnostic 6 : tâches publiques, avec une ablation par ingrédient
+
+**Dossier :** [`diagnostics/06_iag_tasks/`](diagnostics/06_iag_tasks/). 200 cartes publiques de contrôle par tâche, 40 pas maximum.
+
+![Résultats de l'étape 4a](diagnostics/06_iag_tasks/tasks_results.png)
+
+| Agent | « objectif » | « clé » | « objectif puis clé » |
+|---|---|---|---|
+| Oracle (plus court chemin) | 100 % | 100 % | 100 % |
+| **Agent complet** | **66 %** (lave 15 %) | **61 %** (lave 15,5 %) | **38 %** (lave 20 %) |
+| sans apprentissage par surprise | 55 % | 49,5 % | 25,5 % |
+| avec critique | 63 % | 54,5 % | 35,5 % |
+| sans mémoire | 33 % | 24 % | 10,5 % |
+| sans workspace | 65,5 % | 61 % | 38 % |
+| modèles non entraînés | 13 % | 11,5 % | 0,5 % |
+| aléatoire | 26 % | 24,5 % | 6 % |
+
+**Ce qu'on apprend :**
+
+1. **Le configurateur fonctionne.** Un seul modèle du monde et un seul module de coût servent à trois tâches différentes. Quand l'objectif et la clé sont tous deux proches (1 à 3 pas), l'agent réussit « objectif puis clé » dans 94 % des cas, alors qu'on ne lui a jamais appris à enchaîner.
+2. **La mémoire reste l'ingrédient décisif** (−33 à −37 points sans elle), suivie de l'apprentissage par surprise (−11 à −13 points).
+3. **La critique n'aide pas, elle nuit un peu** (−3 à −6 points). Elle a appris quelque chose (sa valeur baisse bien avec la distance jusqu'à 4 ou 5 pas), mais au-delà son estimation est trop bruitée pour guider l'agent. Conformément à la règle du dépôt, elle est **désactivée** (`value_weight = 0`). Son code reste, pour être réessayé quand elle pourra apprendre de l'expérience réelle (étape 4b).
+4. **L'espace de travail est toujours décoratif.** Avec ou sans lui, les résultats sont identiques.
+
+**Limites :**
+
+- **La lave reste le premier problème** : 15 à 20 % des épisodes. L'imagination de la lave se dégrade au-delà de quelques pas (AUC 0,78 à 5 pas), et l'agent meurt à la première erreur, sans pouvoir en tirer de leçon. C'est exactement ce que l'apprentissage continu de l'étape 4b doit corriger.
+- **Les cibles lointaines restent hors de portée** : de 0 à 17 % de succès au-delà de 9 pas.
+- **L'agent n'est pas encore prêt pour le test final.** Les tâches du test sont plus longues (7 à 8,5 pas en moyenne contre 3 à 4 ici), et deux d'entre elles demandent d'ouvrir une porte, que le modèle du monde prédit mal.
+
 ---
 
 ## Feuille de route
@@ -547,7 +602,8 @@ python -m evaluation.human                # l'humain passe le test (12 cartes pa
 - [x] **Mini-IAG, étape 2** : entraîner le modèle du monde (JEPA), puis le coût et le workspace sur ses représentations
 - [x] **Mini-IAG, étape 3** : câblage, planification dans l'espace latent
 - [x] **Test final pré-enregistré** (evaluation/) : tâches nouvelles, humain expert, 5 règles de verdict, seuil V1 = 75 %
-- [ ] **Mini-IAG, étape 4** : monde avec clé et porte, buts variables (configurateur), vie continue sur l'ordinateur avec apprentissage continu
+- [x] **Mini-IAG, étape 4a** : monde avec clé et porte, buts variables (configurateur), apprentissage par surprise
+- [ ] **Mini-IAG, étape 4b** : vie continue sur l'ordinateur, apprentissage continu (le modèle du monde se corrige en vivant), sauvegarde
 - [ ] **Mini-IAG, étape 5** : coût verrouillé, passage du test final, verdict publié quel qu'il soit
 - [ ] **Module social** : remplacer la phrase fixe « l'utilisateur ne m'a pas parlé » (fausse juste après un message) par un contenu qui reflète le temps écoulé depuis le dernier message
 - [ ] **Exp. 2** : Adaptation (fatigue) pour une ignition transitoire, puis compétition entre deux stimuli. Seul l'un d'eux doit accéder au workspace (goulot attentionnel).
@@ -606,10 +662,14 @@ python -m evaluation.human                # l'humain passe le test (12 cartes pa
 │   │   ├── training_check.py
 │   │   ├── training_results.json
 │   │   └── training_results.png
-│   └── 05_iag_planning/
-│       ├── planning_check.py
-│       ├── planning_results.json
-│       └── planning_results.png
+│   ├── 05_iag_planning/
+│   │   ├── planning_check.py
+│   │   ├── planning_results.json
+│   │   └── planning_results.png
+│   └── 06_iag_tasks/
+│       ├── tasks_check.py
+│       ├── tasks_results.json
+│       └── tasks_results.png
 ├── evaluation/                  # Test final pré-enregistré (jamais importé par mini_iag/)
 │   ├── PROTOCOLE.md             # question, cas, règles du verdict, limites
 │   ├── registration.json        # empreintes SHA-256 + date d'enregistrement
@@ -635,6 +695,11 @@ python -m evaluation.human                # l'humain passe le test (12 cartes pa
 │   ├── coordinate.py            # étape 3 : python -m mini_iag.coordinate
 │   ├── play.py                  # démo : python -m mini_iag.play
 │   ├── agent.py                 # Agent (câblage des 4 modules) + Decision
+│   ├── task_agent.py            # TaskAgent (tâches variables, apprentissage par surprise)
+│   ├── event_detector.py        # EventDetector (événements déduits de la perception)
+│   ├── architecture_v2.py       # ArchitectureV2 (coût configurable + critique)
+│   ├── data_keydoor.py          # collecte dans le monde v2
+│   ├── train_keydoor.py         # étape 4a : python -m mini_iag.train_keydoor
 │   ├── planning/
 │   │   └── latent_planner.py    # LatentPlanner (imaginer, évaluer, choisir) + Plan
 │   ├── training/
@@ -642,6 +707,7 @@ python -m evaluation.human                # l'humain passe le test (12 cartes pa
 │   │   ├── cost_trainer.py          # CostTrainer
 │   │   ├── workspace_trainer.py     # WorkspaceTrainer (+ tâche de sélection)
 │   │   ├── coordination_trainer.py  # CoordinationTrainer (coût sur états imaginés)
+│   │   ├── critic_trainer.py        # CriticTrainer (itération de valeur dans l'imagination)
 │   │   └── selection_readout.py     # SelectionReadout (lecture des slots)
 │   ├── environment/
 │   │   ├── gridworld.py         # GridWorld (monde en grille, étapes 1 à 3)
@@ -655,6 +721,8 @@ python -m evaluation.human                # l'humain passe le test (12 cartes pa
 │       ├── world_model.py       # WorldModel (JEPA)
 │       ├── bottleneck_workspace.py  # BottleneckWorkspace (goulot d'attention)
 │       ├── cost_module.py       # CostModule (danger, succès, verrou)
+│       ├── configurable_cost.py # ConfigurableCost (le configurateur, monde v2)
+│       ├── critic.py            # Critic (valeur par événement visé)
 │       └── vector_memory.py     # VectorMemory (base vectorielle)
 └── psyche/                      # Prototype comportemental
     ├── __init__.py
