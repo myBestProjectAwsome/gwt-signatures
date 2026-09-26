@@ -591,6 +591,59 @@ python diagnostics/06_iag_tasks/tasks_check.py     # ~12 minutes
 - **Les cibles lointaines restent hors de portée** : de 0 à 17 % de succès au-delà de 9 pas.
 - **L'agent n'est pas encore prêt pour le test final.** Les tâches du test sont plus longues (7 à 8,5 pas en moyenne contre 3 à 4 ici), et deux d'entre elles demandent d'ouvrir une porte, que le modèle du monde prédit mal.
 
+### Étape 4b : La vie continue sur l'ordinateur
+
+```bash
+python -m mini_iag.live              # elle vit, apprend, sauvegarde ; Ctrl+C ou q pour arrêter
+python -m mini_iag.live --regarder   # la regarder jouer pas à pas
+python -m mini_iag.live --bilan      # progression et courbe (checkpoints/life_progress.png)
+```
+
+La mini-IAG joue carte après carte des tâches publiques, au hasard ou imposées au clavier (`o`, `c`, `oc`), sur des cartes publiques toujours nouvelles. Tous les 5 épisodes, elle fait une séance d'apprentissage. Son état complet est sauvegardé dans `checkpoints/life.pt` : relancer la commande la fait reprendre où elle en était. Elle vit dans son monde virtuel et n'écrit que dans `checkpoints/`.
+
+#### Ce qui apprend en vivant, et ce qui reste figé
+
+| Partie | En vivant | Pourquoi |
+|---|---|---|
+| **Imagination** (prédicteur du modèle du monde) | **apprend** | C'est elle qui se trompe sur la lave et les obstacles |
+| Perception (encodeur) | figée | Le module de coût et la mémoire lisent ses vecteurs : s'ils changeaient de sens, plus rien ne serait compris |
+| **Valeurs** (module de coût) | **figées** | L'agent ne doit jamais pouvoir modifier ce qu'il redoute. Elles seront verrouillées à l'étape 5. |
+
+Le prédicteur apprend ([`continual_learner.py`](mini_iag/life/continual_learner.py)) sur des segments de 5 pas de son expérience. L'état imaginé doit coller à l'état réellement atteint, et le module de coût, figé, doit y lire les événements qui ont vraiment eu lieu. Chaque séance mélange **moitié souvenirs récents, moitié souvenirs anciens** (l'expérience d'origine), pour limiter l'oubli catastrophique ([`experience_buffer.py`](mini_iag/life/experience_buffer.py)).
+
+La même procédure sert pour apprendre une tâche en quelques épisodes (`TaskAgent.practice`), ce qu'exige la règle V2 du test final.
+
+#### Diagnostic 7 : vivre fait-il progresser ?
+
+**Dossier :** [`diagnostics/07_iag_life/`](diagnostics/07_iag_life/). L'agent vit 1 500 épisodes (environ 10 minutes), puis on le mesure sur les cartes de **contrôle**, jamais vécues pendant sa vie, et sur ses connaissances de physique.
+
+![Résultats de l'étape 4b](diagnostics/07_iag_life/life_results.png)
+
+| Tâche (150 cartes de contrôle) | Avant la vie | **Vie complète** | Vie sans souvenirs anciens |
+|---|---|---|---|
+| objectif | 68 % (lave 14 %) | **79 %** (lave **6,7 %**) | 76 % (lave 14 %) |
+| clé | 56 % (lave 17,3 %) | **73 %** (lave **8 %**) | 71 % (lave 19,3 %) |
+| objectif puis clé | 36 % (lave 20,7 %) | 46 % (lave 16 %) | 51 % (lave 28,7 %) |
+
+| Physique, anticipation à 5 pas imaginés (AUC) | Avant | Vie complète | Sans souvenirs anciens |
+|---|---|---|---|
+| lave | 0,771 | **0,810** | 0,738 |
+| clé | 0,948 | 0,949 | 0,928 |
+| objectif | 0,969 | 0,957 | 0,944 |
+| **porte** (jamais demandée pendant la vie) | 0,944 | **0,896** | 0,884 |
+
+**Ce qu'on apprend :**
+
+1. **Vivre fait progresser.** Sur des cartes jamais vécues : +11 points pour « objectif », +17 pour « clé », +10 pour « objectif puis clé ». Et surtout, **la lave est divisée par deux** sur les deux premières tâches (14 % → 6,7 %, 17,3 % → 8 %) : l'imagination de la lave s'est améliorée (AUC 0,77 → 0,81 à 5 pas).
+2. **Les souvenirs anciens protègent de l'oubli.** Sans eux, l'agent réussit presque autant, mais il meurt bien plus (jusqu'à 28,7 % de lave), et toutes ses connaissances de physique se dégradent. L'imagination de la lave devient même **pire qu'avant la vie** (0,738 contre 0,771). C'est l'oubli catastrophique, mesuré.
+3. **Mais ce qui n'est jamais pratiqué s'oublie quand même.** L'anticipation de la porte baisse de 0,944 à 0,896, même avec les souvenirs anciens. La vie ne demande jamais d'ouvrir une porte, et les ouvertures de porte sont rares dans les souvenirs anciens (0,3 % des pas). C'est un problème sérieux pour le test final, dont deux tâches demandent d'ouvrir une porte.
+
+**Limites :**
+
+- **L'oubli de la porte** (point 3) est la prochaine chose à corriger : faire répéter en priorité les souvenirs rares (clé, porte), plutôt que de tirer les souvenirs anciens au hasard.
+- **Les progrès plafonnent vite.** Pendant la vie, la réussite monte d'environ 55 % à 65-70 % en 200 à 300 épisodes, puis stagne. Seule l'imagination apprend, pas la perception.
+- **L'espace de travail n'a toujours aucun rôle réel.**
+
 ---
 
 ## Feuille de route
@@ -603,7 +656,8 @@ python diagnostics/06_iag_tasks/tasks_check.py     # ~12 minutes
 - [x] **Mini-IAG, étape 3** : câblage, planification dans l'espace latent
 - [x] **Test final pré-enregistré** (evaluation/) : tâches nouvelles, humain expert, 5 règles de verdict, seuil V1 = 75 %
 - [x] **Mini-IAG, étape 4a** : monde avec clé et porte, buts variables (configurateur), apprentissage par surprise
-- [ ] **Mini-IAG, étape 4b** : vie continue sur l'ordinateur, apprentissage continu (le modèle du monde se corrige en vivant), sauvegarde
+- [x] **Mini-IAG, étape 4b** : vie continue sur l'ordinateur, apprentissage continu (l'imagination se corrige en vivant), sauvegarde et reprise
+- [ ] **Répétition prioritaire des souvenirs rares**, contre l'oubli de la porte (mesuré à l'étape 4b)
 - [ ] **Mini-IAG, étape 5** : coût verrouillé, passage du test final, verdict publié quel qu'il soit
 - [ ] **Module social** : remplacer la phrase fixe « l'utilisateur ne m'a pas parlé » (fausse juste après un message) par un contenu qui reflète le temps écoulé depuis le dernier message
 - [ ] **Exp. 2** : Adaptation (fatigue) pour une ignition transitoire, puis compétition entre deux stimuli. Seul l'un d'eux doit accéder au workspace (goulot attentionnel).
@@ -666,10 +720,14 @@ python diagnostics/06_iag_tasks/tasks_check.py     # ~12 minutes
 │   │   ├── planning_check.py
 │   │   ├── planning_results.json
 │   │   └── planning_results.png
-│   └── 06_iag_tasks/
-│       ├── tasks_check.py
-│       ├── tasks_results.json
-│       └── tasks_results.png
+│   ├── 06_iag_tasks/
+│   │   ├── tasks_check.py
+│   │   ├── tasks_results.json
+│   │   └── tasks_results.png
+│   └── 07_iag_life/
+│       ├── life_check.py
+│       ├── life_results.json
+│       └── life_results.png
 ├── evaluation/                  # Test final pré-enregistré (jamais importé par mini_iag/)
 │   ├── PROTOCOLE.md             # question, cas, règles du verdict, limites
 │   ├── registration.json        # empreintes SHA-256 + date d'enregistrement
@@ -700,6 +758,12 @@ python diagnostics/06_iag_tasks/tasks_check.py     # ~12 minutes
 │   ├── architecture_v2.py       # ArchitectureV2 (coût configurable + critique)
 │   ├── data_keydoor.py          # collecte dans le monde v2
 │   ├── train_keydoor.py         # étape 4a : python -m mini_iag.train_keydoor
+│   ├── live.py                  # étape 4b : python -m mini_iag.live (la vie continue)
+│   ├── life/
+│   │   ├── life.py              # Life (boucle de vie, sauvegarde, reprise)
+│   │   ├── episode.py           # un épisode vécu, enregistré
+│   │   ├── experience_buffer.py # ExperienceBuffer (souvenirs récents + anciens)
+│   │   └── continual_learner.py # ContinualLearner (l'imagination apprend en vivant)
 │   ├── planning/
 │   │   └── latent_planner.py    # LatentPlanner (imaginer, évaluer, choisir) + Plan
 │   ├── training/
