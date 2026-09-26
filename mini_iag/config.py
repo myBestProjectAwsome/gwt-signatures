@@ -44,7 +44,8 @@ class Config:
     step_penalty: float = 0.02  # chaque pas coûte un peu : préférer les chemins courts
     novelty_weight: float = 0.02  # pénalité pour retourner dans un état déjà visité
     max_steps: int = 30
-    value_weight: float = 1.0   # poids de la critique au bout de l'horizon (monde v2)
+    value_weight: float = 1.0   # poids d'une critique d'ÉTATS au bout de l'horizon (abandonné en v2)
+    critic_weight: float = 0.0  # poids de la critique d'ACTIONS sur l'état réel (v2 : 2.0)
     value_discount: float = 0.9
 
     seed: int = 0
@@ -56,6 +57,6 @@ class Config:
         représentées, cf. README étape 4)."""
         base = dict(channels=7, n_events=4, pair_events=True, latent_dim=64,
                     predictor_hidden=128, cost_hidden=64,
-                    value_weight=0.0)   # critique entraînée mais non utilisée : son
-                                        # ablation montre qu'elle n'aide pas (README, étape 4a)
+                    value_weight=0.0,   # critique sur états imaginés : nuit (README, 4a)
+                    critic_weight=2.0)  # critique d'actions sur l'état réel : aide (README)
         return cls(**{**base, **kw})

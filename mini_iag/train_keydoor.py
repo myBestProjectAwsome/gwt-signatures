@@ -6,8 +6,8 @@
      l'expérience d'un agent qui marche au hasard, sans aucune récompense ;
   2. module de coût configurable : apprend à reconnaître les 4 événements
      (objectif, clé, porte, lave) dans des états réels ET imaginés ;
-  3. critique : proximité de chaque événement, apprise par itération de valeur
-     dans l'imagination (sert au-delà de l'horizon de planification) ;
+  3. critique d'actions : proximité de chaque événement, apprise par Q-learning
+     hors ligne sur l'expérience RÉELLE (sert au-delà de l'horizon d'imagination) ;
   4. espace de travail : attention sélective, comme à l'étape 2 ;
   5. mémoire : échelle de distance entre deux états voisins.
 Aucune tâche n'est utilisée ici : les tâches n'interviennent qu'au moment
@@ -24,10 +24,10 @@ from .architecture_v2 import ArchitectureV2
 from .config import Config
 from .data import TEST_SEED, TRAIN_SEED
 from .data_keydoor import collect_kd, collect_kd_segments
-from .training import (CoordinationTrainer, CriticTrainer, SelectionReadout, WorkspaceTrainer,
+from .training import (CoordinationTrainer, OfflineQTrainer, SelectionReadout, WorkspaceTrainer,
                        WorldModelTrainer)
 
-STEP4 = Path("checkpoints/step4.pt")
+STEP4 = Path("checkpoints/step4.pt")     # (~9 minutes d'entraînement)
 TRAIN_MAPS = 3000
 EVENT_POS_WEIGHT = (10.0, 10.0, 30.0, 1.0)     # objectif, clé, porte (très rare), lave
 
@@ -65,11 +65,9 @@ def train(out=STEP4, verbose=True, **overrides):
     cost_log = CoordinationTrainer(arch.cost, arch.world_model, iters=4000).fit(
         coord_segments, verbose=verbose, eval_every=1000)
 
-    say("\n3/4 Critique (itération de valeur dans l'imagination)")
-    with torch.no_grad():
-        latents = arch.world_model.encode(data.obs[:60000].float())
-    critic_log = CriticTrainer(arch.critic, arch.world_model, arch.cost,
-                               discount=cfg.value_discount).fit(latents, verbose=verbose)
+    say("\n3/4 Critique d'actions (Q-learning hors ligne sur l'expérience réelle)")
+    critic_log = OfflineQTrainer(arch.critic, arch.world_model,
+                                 discount=cfg.value_discount).fit(data, verbose=verbose)
 
     say("\n4/4 Espace de travail")
     readout = SelectionReadout(cfg)

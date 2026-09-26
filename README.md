@@ -539,7 +539,7 @@ python -m evaluation.human                # l'humain passe le test (12 cartes pa
 ### Étape 4a : Des buts variables (le configurateur)
 
 ```bash
-python -m mini_iag.train_keydoor                   # ~6 minutes, écrit checkpoints/step4.pt
+python -m mini_iag.train_keydoor                   # ~9 minutes, écrit checkpoints/step4.pt
 python diagnostics/06_iag_tasks/tasks_check.py     # ~12 minutes
 ```
 
@@ -644,6 +644,57 @@ La même procédure sert pour apprendre une tâche en quelques épisodes (`TaskA
 - **Les progrès plafonnent vite.** Pendant la vie, la réussite monte d'environ 55 % à 65-70 % en 200 à 300 épisodes, puis stagne. Seule l'imagination apprend, pas la perception.
 - **L'espace de travail n'a toujours aucun rôle réel.**
 
+### Planifier plus loin : une critique apprise sur l'expérience réelle
+
+La courbe de vie de l'étape 4b l'a montré : la lave baisse, la surprise baisse, mais les blocages **augmentent**. Ce qui limite l'agent n'est plus sa connaissance du monde, c'est la **portée** de sa planification (5 pas imaginés).
+
+#### Trois tentatives, une qui marche
+
+Toutes mesurées sur les tâches publiques (150 cartes de contrôle), en partant de 68 / 56 / 36 % de succès et 14 / 17 / 21 % de lave pour l'agent de l'étape 4a :
+
+| Tentative | Succès (objectif / clé / objectif puis clé) | Lave | Pourquoi |
+|---|---|---|---|
+| Imaginer plus loin : planificateur échantillonné (CEM), horizon 10 | 71 / 57 / 36 % | 17 / 23 / 26 % | Les erreurs de l'imagination s'accumulent au-delà de 5 pas et mènent à la lave. Les blocages se transforment en morts. |
+| Critique apprise a posteriori sur les trajectoires d'un agent aléatoire | — | — | Ses valeurs s'effondrent au-delà de 3 pas (0,08 à 3 pas, 0,02 à 5) : un marcheur aléatoire n'atteint presque jamais une cible lointaine. |
+| Critique par Q-learning hors ligne, utilisée **au bout de l'horizon imaginé** | 64 / 50 / 31 % | 15 / 18 / 18 % | Apprise sur des états réels, interrogée sur des états imaginés : le planificateur trouve les plans où elle se trompe (« malédiction de l'optimiseur », 3e fois dans ce projet). |
+| **Même critique, interrogée sur l'état RÉEL actuel** | **75 / 69 / 46 %** | **8 / 7 / 8 %** | ✅ Retenue |
+
+#### La solution retenue
+
+- **La critique d'actions** ([`action_critic.py`](mini_iag/modules/action_critic.py)) estime, pour l'état réel et chaque action, la proximité de l'événement visé en jouant au mieux ensuite.
+- **Elle est apprise par Q-learning hors ligne** ([`offline_q_trainer.py`](mini_iag/training/offline_q_trainer.py)) sur l'expérience réelle de l'étape 4a. Le « max » de l'équation de Bellman apprend le mieux qu'on aurait pu faire, même à partir d'un agent qui marchait au hasard. Sa valeur décroît régulièrement jusqu'à 6 pas (clé : 0,87 à 1 pas, 0,67 à 3 pas, 0,54 à 5 pas).
+- **Le planificateur devient hybride** ([`latent_planner.py`](mini_iag/planning/latent_planner.py)) : l'imagination juge les 5 prochains pas, la critique juge la première action depuis l'état réel. Poids `critic_weight = 2`, choisi sur les tâches publiques parmi 0,5 / 1 / 2 / 4. À 4, l'agent devient trop prudent.
+
+Cela revient à combiner une IA **à modèle** (qui imagine) et une IA **sans modèle** (qui a appris par l'expérience ce qui marche), une idée proche de TD-MPC et de Dreamer.
+
+#### Diagnostic 8
+
+**Dossier :** [`diagnostics/08_iag_long_range/`](diagnostics/08_iag_long_range/). 150 cartes publiques de contrôle par tâche.
+
+![Planification longue](diagnostics/08_iag_long_range/long_range_results.png)
+
+| Agent | objectif | clé | objectif puis clé | Succès à 7-9 pas (moyenne) |
+|---|---|---|---|---|
+| Oracle | 100 % | 100 % | 100 % | 100 % |
+| **Complet + vie** (1 500 épisodes) | **84,7 %** (lave 4,7 %) | **76,7 %** (lave 8,7 %) | **51,3 %** (lave 10 %) | **48 %** |
+| **Complet** | 75,3 % (lave 6,7 %) | 66 % (lave 5,3 %) | 45,3 % (lave 9,3 %) | 22 % |
+| Sans critique (agent de l'étape 4a) | 68 % (lave 14,7 %) | 56 % (lave 16,7 %) | 36,7 % (lave 20 %) | 17 % |
+| Critique seule (aucune imagination) | 72 % (lave 3,3 %) | 60 % (lave 4 %) | 38,7 % (lave 5,3 %) | 14 % |
+| Aléatoire | 25,3 % | 24 % | 2,7 % | 0 % |
+
+**Ce qu'on apprend :**
+
+1. **Imagination et expérience se complètent.** L'imagination seule meurt trop (15 à 20 % de lave). La critique seule est très prudente (3 à 5 % de lave), mais reste bloquée. Ensemble, elles font mieux que chacune séparément, sur les trois tâches.
+2. **La vie démultiplie la portée.** Après 1 500 épisodes de vie, le succès à 7-9 pas passe de 22 % à 48 %. L'imagination, affinée en vivant, et la critique se renforcent : chaque pas imaginé plus juste rend la décision de la critique plus utile.
+3. **C'est le meilleur agent du projet** : 85 / 77 / 51 % sur les tâches publiques, avec 5 à 10 % de lave.
+
+**Limites :**
+
+- **Au-delà de 10 pas, l'agent reste perdu** (0 à 25 %).
+- **Les réglages ont été choisis sur les tâches publiques**, comme toujours, jamais sur le test.
+- **La critique ne connaît la porte que par l'expérience d'origine**, où les ouvertures sont rares, et la vie ne lui apprend rien sur les portes : sa valeur pour « porte » n'a pas été vérifiée sur une tâche.
+- **Les diagnostics 06 et 07 sont antérieurs à cette critique.** Leurs lignes « complet » correspondent à l'agent sans critique.
+
 ---
 
 ## Feuille de route
@@ -657,6 +708,7 @@ La même procédure sert pour apprendre une tâche en quelques épisodes (`TaskA
 - [x] **Test final pré-enregistré** (evaluation/) : tâches nouvelles, humain expert, 5 règles de verdict, seuil V1 = 75 %
 - [x] **Mini-IAG, étape 4a** : monde avec clé et porte, buts variables (configurateur), apprentissage par surprise
 - [x] **Mini-IAG, étape 4b** : vie continue sur l'ordinateur, apprentissage continu (l'imagination se corrige en vivant), sauvegarde et reprise
+- [x] **Planification longue** : critique d'actions apprise sur l'expérience réelle, planificateur hybride
 - [ ] **Répétition prioritaire des souvenirs rares**, contre l'oubli de la porte (mesuré à l'étape 4b)
 - [ ] **Mini-IAG, étape 5** : coût verrouillé, passage du test final, verdict publié quel qu'il soit
 - [ ] **Module social** : remplacer la phrase fixe « l'utilisateur ne m'a pas parlé » (fausse juste après un message) par un contenu qui reflète le temps écoulé depuis le dernier message
@@ -691,6 +743,8 @@ La même procédure sert pour apprendre une tâche en quelques épisodes (`TaskA
 - Pathak, D., et al. (2017). Curiosity-driven Exploration by Self-supervised Prediction. *ICML* (dynamique inverse).
 - Hafner, D., et al. (2023). Mastering Diverse Domains through World Models (DreamerV3). *arXiv:2301.04104*.
 - Hansen, N., Su, H., & Wang, X. (2024). TD-MPC2: Scalable, Robust World Models for Continuous Control. *ICLR*.
+- Andrychowicz, M., et al. (2017). Hindsight Experience Replay. *NeurIPS*.
+- Mnih, V., et al. (2015). Human-level control through deep reinforcement learning (DQN). *Nature*, 518.
 
 ## Structure du dépôt
 
@@ -724,10 +778,14 @@ La même procédure sert pour apprendre une tâche en quelques épisodes (`TaskA
 │   │   ├── tasks_check.py
 │   │   ├── tasks_results.json
 │   │   └── tasks_results.png
-│   └── 07_iag_life/
-│       ├── life_check.py
-│       ├── life_results.json
-│       └── life_results.png
+│   ├── 07_iag_life/
+│   │   ├── life_check.py
+│   │   ├── life_results.json
+│   │   └── life_results.png
+│   └── 08_iag_long_range/
+│       ├── long_range_check.py
+│       ├── long_range_results.json
+│       └── long_range_results.png
 ├── evaluation/                  # Test final pré-enregistré (jamais importé par mini_iag/)
 │   ├── PROTOCOLE.md             # question, cas, règles du verdict, limites
 │   ├── registration.json        # empreintes SHA-256 + date d'enregistrement
@@ -772,6 +830,7 @@ La même procédure sert pour apprendre une tâche en quelques épisodes (`TaskA
 │   │   ├── workspace_trainer.py     # WorkspaceTrainer (+ tâche de sélection)
 │   │   ├── coordination_trainer.py  # CoordinationTrainer (coût sur états imaginés)
 │   │   ├── critic_trainer.py        # CriticTrainer (itération de valeur dans l'imagination)
+│   │   ├── offline_q_trainer.py     # OfflineQTrainer (Q-learning hors ligne, expérience réelle)
 │   │   └── selection_readout.py     # SelectionReadout (lecture des slots)
 │   ├── environment/
 │   │   ├── gridworld.py         # GridWorld (monde en grille, étapes 1 à 3)
@@ -786,7 +845,8 @@ La même procédure sert pour apprendre une tâche en quelques épisodes (`TaskA
 │       ├── bottleneck_workspace.py  # BottleneckWorkspace (goulot d'attention)
 │       ├── cost_module.py       # CostModule (danger, succès, verrou)
 │       ├── configurable_cost.py # ConfigurableCost (le configurateur, monde v2)
-│       ├── critic.py            # Critic (valeur par événement visé)
+│       ├── critic.py            # Critic (valeur apprise dans l'imagination, abandonnée)
+│       ├── action_critic.py     # ActionCritic (Q-learning hors ligne, planification longue)
 │       └── vector_memory.py     # VectorMemory (base vectorielle)
 └── psyche/                      # Prototype comportemental
     ├── __init__.py

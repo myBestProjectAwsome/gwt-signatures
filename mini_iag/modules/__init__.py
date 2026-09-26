@@ -8,6 +8,7 @@ from .cost_module import CostModule
 from .configurable_cost import ConfigurableCost, EVENT_INDEX
 from .vector_memory import VectorMemory
 from .critic import Critic
+from .action_critic import ActionCritic
 
 __all__ = ["StateEncoder", "LatentPredictor", "InverseDynamics", "EventPredictor", "WorldModel",
-           "BottleneckWorkspace", "CostModule", "ConfigurableCost", "EVENT_INDEX", "VectorMemory", "Critic"]
+           "BottleneckWorkspace", "CostModule", "ConfigurableCost", "EVENT_INDEX", "VectorMemory", "Critic", "ActionCritic"]

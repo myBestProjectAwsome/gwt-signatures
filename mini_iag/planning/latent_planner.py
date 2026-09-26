@@ -67,7 +67,13 @@ class LatentPlanner:
         else:
             fam = torch.zeros(len(P), H)
         scores = (weight * (step_cost + cfg.novelty_weight * fam)).sum(1)
-        if self.critic is not None and cfg.value_weight > 0:
+        if self.critic is not None and getattr(cfg, "critic_weight", 0) > 0 and hasattr(self.critic, "q"):
+            # planification longue : la critique d'actions, apprise sur l'expérience réelle,
+            # juge la PREMIÈRE action depuis l'état RÉEL (jamais un état imaginé)
+            q = self.critic.q(z, self.cost.target)[0]
+            scores = scores - cfg.critic_weight * self.cost.w_success * q[P[:, 0]]
+        if self.critic is not None and cfg.value_weight > 0 and hasattr(self.critic, "value") \
+                and not hasattr(self.critic, "q"):
             # au-delà de l'horizon : la critique estime la proximité de l'événement visé
             alive_end = alive[:, -1] * (1 - stop[:, -1])
             value = self.critic.value(traj[:, -1], self.cost.target)
