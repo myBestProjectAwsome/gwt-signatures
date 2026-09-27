@@ -606,6 +606,7 @@ La mini-IAG joue carte après carte des tâches publiques, au hasard ou imposée
 | Partie | En vivant | Pourquoi |
 |---|---|---|
 | **Imagination** (prédicteur du modèle du monde) | **apprend** | C'est elle qui se trompe sur la lave et les obstacles |
+| **Critique d'actions** (ajoutée après le diagnostic 10) | **apprend** | Elle découvre dans l'expérience vécue ce qui mène à chaque événement |
 | Perception (encodeur) | figée | Le module de coût et la mémoire lisent ses vecteurs : s'ils changeaient de sens, plus rien ne serait compris |
 | **Valeurs** (module de coût) | **figées** | L'agent ne doit jamais pouvoir modifier ce qu'il redoute. Elles seront verrouillées à l'étape 5. |
 
@@ -634,7 +635,7 @@ La même procédure sert pour apprendre une tâche en quelques épisodes (`TaskA
 
 **Ce qu'on apprend :**
 
-1. **Vivre fait progresser.** Sur des cartes jamais vécues : +11 points pour « objectif », +17 pour « clé », +10 pour « objectif puis clé ». Et surtout, **la lave est divisée par deux** sur les deux premières tâches (14 % → 6,7 %, 17,3 % → 8 %) : l'imagination de la lave s'est améliorée (AUC 0,77 → 0,81 à 5 pas).
+1. **Vivre fait progresser** *(corrigé au diagnostic 10 : le progrès vient surtout d'un alignement entre l'imagination et le module de coût, obtenu en deux séances, même sans rien vivre)*. Sur des cartes jamais vécues : +11 points pour « objectif », +17 pour « clé », +10 pour « objectif puis clé ». Et surtout, **la lave est divisée par deux** sur les deux premières tâches (14 % → 6,7 %, 17,3 % → 8 %) : l'imagination de la lave s'est améliorée (AUC 0,77 → 0,81 à 5 pas).
 2. **Les souvenirs anciens protègent de l'oubli.** Sans eux, l'agent réussit presque autant, mais il meurt bien plus (jusqu'à 28,7 % de lave), et toutes ses connaissances de physique se dégradent. L'imagination de la lave devient même **pire qu'avant la vie** (0,738 contre 0,771). C'est l'oubli catastrophique, mesuré.
 3. **Mais ce qui n'est jamais pratiqué s'oublie quand même.** L'anticipation de la porte baisse de 0,944 à 0,896, même avec les souvenirs anciens. La vie ne demande jamais d'ouvrir une porte, et les ouvertures de porte sont rares dans les souvenirs anciens (0,3 % des pas). C'est un problème sérieux pour le test final, dont deux tâches demandent d'ouvrir une porte.
 
@@ -735,6 +736,65 @@ L'étape 4b l'a mesuré : en vivant, l'imagination oublie peu à peu ce que fait
 python diagnostics/09_iag_rare_memories/rare_memories_check.py   # ~20 minutes
 ```
 
+### Répétition générale du test, et une critique qui apprend en vivant
+
+#### Le test blanc
+
+Le test final mesure surtout une chose (règle V1) : réussir **du premier coup** une tâche jamais pratiquée. Aucun diagnostic ne le mesurait jusqu'ici, puisque la vie pratiquait toutes les tâches publiques. Le diagnostic 10 en fait une répétition générale, sur du matériel public uniquement :
+
+- la tâche composée « objectif puis clé » est **retirée de la vie** : l'agent ne la pratique jamais ;
+- après la vie, on le mesure dessus en zéro essai, sur 150 cartes de contrôle ;
+- l'humain est remplacé par l'oracle (100 % de réussite). C'est optimiste pour l'humain, donc pessimiste pour l'agent. Règle V1 de substitution : succès ÷ 100 % ≥ 0,75.
+
+#### La critique apprend en vivant
+
+Jusqu'ici, la critique d'actions n'apprenait que sur l'expérience d'origine (un agent qui marchait au hasard) et restait figée pendant la vie. Désormais, chaque séance d'apprentissage continue aussi son Q-learning, sur le même mélange que l'imagination : moitié souvenirs récents, moitié souvenirs anciens ([`critic_learner.py`](mini_iag/life/critic_learner.py)).
+
+Chaque transition vécue sert aux trois événements à la fois (objectif, clé, porte). C'est l'idée du **rejeu a posteriori** (*Hindsight Experience Replay*, Andrychowicz et al., 2017) : si l'agent ouvre une porte par hasard en cherchant autre chose, la critique apprend quand même comment on ouvre une porte. Aucune tâche ne le lui demande. Comme avant, la critique n'apprend que sur des états **réels**.
+
+#### Diagnostic 10
+
+**Dossier :** [`diagnostics/10_iag_rehearsal/`](diagnostics/10_iag_rehearsal/). 1 500 épisodes de vie par condition.
+
+![Test blanc](diagnostics/10_iag_rehearsal/rehearsal_results.png)
+
+| Tâche (150 cartes de contrôle) | Avant la vie | Vie sans la tâche | **Vie sans la tâche + critique qui apprend** | Vie avec la tâche (pratiquée) |
+|---|---|---|---|---|
+| objectif | 75,3 % (lave 6,7 %) | 83,3 % (lave 4,7 %) | **87,3 %** (lave 6 %) | 86,7 % (lave 5,3 %) |
+| clé | 66 % (lave 5,3 %) | 76,7 % (lave 8 %) | **81,3 %** (lave 7,3 %) | 76 % (lave 6,7 %) |
+| **objectif puis clé** (jamais pratiquée, sauf dernière colonne) | 45,3 % | 52 % | **62 %** | 56 % |
+| dont chemins de 7 à 9 pas | 39 % | 41 % | **63 %** | 48 % |
+| **V1 de substitution** (seuil 0,75) | — | 0,52 ❌ | 0,62 ❌ | — |
+
+Une seconde vie (autre graine) pour mesurer le bruit : sans critique qui apprend 86,7 / 75,3 / 56 %, avec 82,7 / 78 / 59,3 %. En moyenne sur les deux vies, sur la tâche jamais pratiquée : **54 % → 60,7 %**.
+
+**Ce qu'on apprend :**
+
+1. **Le test blanc est raté, et c'est l'information la plus utile de l'étape.** Même avec la critique qui apprend, l'agent réussit 60 % d'une tâche jamais pratiquée, là où il en faudrait 75 %. Et le vrai test est plus dur : clé → porte, chemins jusqu'à 50 pas.
+2. **Pratiquer la tâche n'aide presque pas** (56 % pratiquée contre 52 % jamais pratiquée, dans le bruit). La composition de sous-buts se transfère bien. Ce qui manque n'est pas l'expérience de la tâche, c'est la **portée** : 100 % à 1-3 pas, environ 20 % au-delà de 10 pas, dans toutes les conditions.
+3. **La critique qui apprend aide, modestement** : environ +7 points en moyenne sur la tâche jamais pratiquée, surtout sur les chemins de 7 à 9 pas. Elle est **activée par défaut** (vie et `practice`).
+4. **Mais elle ne choisit pas mieux ses actions** quand on la mesure directement. La part d'actions optimales ne bouge pas (objectif 79 → 76 %, clé 71 → 72 %, porte 69 → 65 %, sur 177 états seulement). Le gain vient peut-être d'estimations mieux étalonnées que le planificateur combine mieux, plutôt que d'un meilleur classement. Ce n'est pas vérifié.
+
+#### Une découverte qui corrige l'étape 4b
+
+En préparant ce test, une vérification a changé l'interprétation du diagnostic 7. On a fait faire à l'agent des séances d'apprentissage **sans rien vivre**, sur les seuls souvenirs anciens :
+
+| Séances, sans aucun épisode vécu | objectif | clé | objectif puis clé |
+|---|---|---|---|
+| 0 | 75,3 % | 66 % | 45,3 % |
+| 2 | 82 % | 75,3 % | 53,3 % |
+| 10 | 83,3 % | 79,3 % | 56 % |
+| 40 | 86 % | 76,7 % | 56 % |
+| *pour comparaison : 1 500 épisodes vécus (300 séances)* | *83 à 87 %* | *75 à 81 %* | *52 à 56 %* |
+
+**L'essentiel du « progrès en vivant » ne vient pas de l'expérience vécue.** Il vient de la perte de l'apprentissage continu elle-même : elle apprend à l'imagination à produire des états que le module de coût (figé) lit correctement. C'est un **alignement** entre l'imagination et l'évaluation, qui aurait pu être fait dès l'étape 2 : deux séances suffisent. L'expérience vécue n'ajoute ensuite presque rien de mesurable, sauf, peut-être, via la critique qui apprend.
+
+La conclusion « vivre fait progresser » du diagnostic 7 est donc **corrigée** : l'agent progresse bien après sa vie, mais ce n'est pas grâce à ce qu'il a vécu.
+
+```bash
+python diagnostics/10_iag_rehearsal/rehearsal_check.py   # ~40 minutes
+```
+
 ---
 
 ## Feuille de route
@@ -750,6 +810,8 @@ python diagnostics/09_iag_rare_memories/rare_memories_check.py   # ~20 minutes
 - [x] **Mini-IAG, étape 4b** : vie continue sur l'ordinateur, apprentissage continu (l'imagination se corrige en vivant), sauvegarde et reprise
 - [x] **Planification longue** : critique d'actions apprise sur l'expérience réelle, planificateur hybride
 - [x] **Contre l'oubli de la porte** : révision prioritaire des souvenirs rares, exploration libre (diagnostic 9 : ni l'une ni l'autre ne suffit, limite connue)
+- [x] **Test blanc** (diagnostic 10) : tâche composée jamais pratiquée, V1 de substitution 0,62 (raté). Critique qui apprend en vivant (+7 points). Le progrès « en vivant » vient surtout d'un alignement imagination/coût
+- [ ] **Portée de la planification** : points de repère et planification hiérarchique (le principal manque mesuré par le test blanc)
 - [ ] **Mini-IAG, étape 5** : coût verrouillé, passage du test final, verdict publié quel qu'il soit
 - [ ] **Module social** : remplacer la phrase fixe « l'utilisateur ne m'a pas parlé » (fausse juste après un message) par un contenu qui reflète le temps écoulé depuis le dernier message
 - [ ] **Exp. 2** : Adaptation (fatigue) pour une ignition transitoire, puis compétition entre deux stimuli. Seul l'un d'eux doit accéder au workspace (goulot attentionnel).
@@ -826,10 +888,14 @@ python diagnostics/09_iag_rare_memories/rare_memories_check.py   # ~20 minutes
 │   │   ├── long_range_check.py
 │   │   ├── long_range_results.json
 │   │   └── long_range_results.png
-│   └── 09_iag_rare_memories/
-│       ├── rare_memories_check.py
-│       ├── rare_memories_results.json
-│       └── rare_memories_results.png
+│   ├── 09_iag_rare_memories/
+│   │   ├── rare_memories_check.py
+│   │   ├── rare_memories_results.json
+│   │   └── rare_memories_results.png
+│   └── 10_iag_rehearsal/
+│       ├── rehearsal_check.py
+│       ├── rehearsal_results.json
+│       └── rehearsal_results.png
 ├── evaluation/                  # Test final pré-enregistré (jamais importé par mini_iag/)
 │   ├── PROTOCOLE.md             # question, cas, règles du verdict, limites
 │   ├── registration.json        # empreintes SHA-256 + date d'enregistrement
@@ -865,7 +931,8 @@ python diagnostics/09_iag_rare_memories/rare_memories_check.py   # ~20 minutes
 │   │   ├── life.py              # Life (boucle de vie, sauvegarde, reprise)
 │   │   ├── episode.py           # un épisode vécu, enregistré
 │   │   ├── experience_buffer.py # ExperienceBuffer (souvenirs récents + anciens)
-│   │   └── continual_learner.py # ContinualLearner (l'imagination apprend en vivant)
+│   │   ├── continual_learner.py # ContinualLearner (l'imagination apprend en vivant)
+│   │   └── critic_learner.py    # CriticLearner (la critique apprend en vivant, rejeu a posteriori)
 │   ├── planning/
 │   │   └── latent_planner.py    # LatentPlanner (imaginer, évaluer, choisir) + Plan
 │   ├── training/

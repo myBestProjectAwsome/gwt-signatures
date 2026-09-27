@@ -58,7 +58,7 @@ def physics(agent, trans, seg):
 
 def run(cfg, episodes, old_fraction, trans, seg):
     agent = load_task_agent()
-    life = Life(agent, old_fraction=old_fraction, path=Path("/tmp/life_check_unused.pt"))
+    life = Life(agent, old_fraction=old_fraction, learn_critic=False, path=Path("/tmp/life_check_unused.pt"))
     for i in range(episodes):
         life.live_one()
         if (i + 1) % 250 == 0:

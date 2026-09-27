@@ -53,7 +53,7 @@ class TaskAgent:
         from .life import ContinualLearner, ExperienceBuffer, anchor_segments, run_episode
         if self.learner is None:
             buffer = ExperienceBuffer(anchor_segments(self.cfg), horizon=self.cfg.planning_horizon)
-            self.learner = ContinualLearner(self.arch, buffer)
+            self.learner = ContinualLearner(self.arch, buffer, learn_critic=True)
         for i in range(episodes):
             _, _, traj = run_episode(self, make_world(i), task, max_steps)
             self.learner.buffer.add(traj)

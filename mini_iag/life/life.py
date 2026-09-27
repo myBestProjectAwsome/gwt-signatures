@@ -8,6 +8,8 @@ sauvegardé et rechargé : éteindre l'ordinateur ne fait rien oublier.
 
 Tâches de la vie : les tâches publiques uniquement (jamais celles du test).
 
+La critique d'actions apprend aussi en vivant (learn_critic, diagnostic 10).
+
 Exploration libre : une part des épisodes (explore_fraction) n'a AUCUNE tâche.
 L'agent se promène, guidé seulement par la curiosité (la mémoire le pousse vers
 les endroits nouveaux) et la peur de la lave. Il ramasse des clés, se promène
@@ -48,7 +50,7 @@ def anchor_segments(cfg, n_maps=2000):
 class Life:
     def __init__(self, agent, learn=True, learn_every=5, old_fraction=0.5, max_steps=40,
                  path=LIFE_PATH, seed=0, rare_bonus="défaut", explore_fraction=0.0,
-                 explore_steps=30):
+                 explore_steps=30, tasks=LIFE_TASKS, learn_critic=True):
         self.agent, self.cfg = agent, agent.cfg
         self.learn, self.learn_every, self.max_steps = learn, learn_every, max_steps
         self.explore_fraction, self.explore_steps = explore_fraction, explore_steps
@@ -56,7 +58,9 @@ class Life:
         extra = {} if rare_bonus == "défaut" else {"rare_bonus": rare_bonus}
         self.buffer = ExperienceBuffer(anchor_segments(self.cfg), horizon=self.cfg.planning_horizon,
                                        seed=seed, **extra)
-        self.learner = ContinualLearner(agent.arch, self.buffer, old_fraction=old_fraction)
+        self.learner = ContinualLearner(agent.arch, self.buffer, old_fraction=old_fraction,
+                                        learn_critic=learn_critic)
+        self.tasks = tuple(tasks)
         self.world = KeyDoorWorld(self.cfg)
         self.rng = random.Random(seed)
         self.episode, self.history, self.forced_task = 0, [], None
@@ -68,7 +72,7 @@ class Life:
             return self.forced_task
         if self.rng.random() < self.explore_fraction:
             return None
-        return self.rng.choice(LIFE_TASKS)
+        return self.rng.choice(self.tasks)
 
     def live_one(self, on_step=None):
         task = self.choose_task()
@@ -106,7 +110,9 @@ class Life:
         torch.save({"predictor": self.agent.arch.world_model.predictor.state_dict(),
                     "optimizer": self.learner.opt.state_dict(),
                     "buffer": self.buffer.state(), "episode": self.episode,
-                    "history": self.history, "n_updates": self.learner.n_updates}, self.path)
+                    "history": self.history, "n_updates": self.learner.n_updates,
+                    "critic": (self.learner.critic_learner.state()
+                               if self.learner.critic_learner else None)}, self.path)
 
     def load(self):
         if not self.path.exists():
@@ -117,4 +123,6 @@ class Life:
         self.buffer.load_state(state["buffer"])
         self.episode, self.history = state["episode"], state["history"]
         self.learner.n_updates = state["n_updates"]
+        if self.learner.critic_learner is not None and state.get("critic"):
+            self.learner.critic_learner.load_state(state["critic"])
         return True

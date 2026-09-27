@@ -7,6 +7,8 @@ Ce qui reste figé :
   - le module de coût (les valeurs et l'évaluation) : il sera verrouillé à
     l'étape 5, l'agent ne doit jamais pouvoir le modifier.
 
+Option learn_critic : la critique d'actions apprend aussi (critic_learner.py).
+
 Perte, sur des segments de H pas imaginés d'affilée :
   - l'état imaginé doit coller à l'état réellement atteint (comme à l'étape 2) ;
   - le module de coût (figé) doit lire dans l'état imaginé les événements qui
@@ -19,7 +21,7 @@ from torch.nn import functional as F
 
 class ContinualLearner:
     def __init__(self, arch, buffer, lr=3e-4, batch_size=256, steps_per_update=40,
-                 old_fraction=0.5, event_weight=1.0):
+                 old_fraction=0.5, event_weight=1.0, learn_critic=False):
         self.arch, self.buffer = arch, buffer
         self.wm, self.cost = arch.world_model, arch.cost
         self.batch_size, self.steps, self.old_fraction = batch_size, steps_per_update, old_fraction
@@ -29,6 +31,11 @@ class ContinualLearner:
             p.requires_grad = True
         self.opt = torch.optim.Adam(self.params, lr=lr)
         self.n_updates = 0
+        self.critic_learner = None
+        if learn_critic and getattr(arch, "critic", None) is not None:
+            from .critic_learner import CriticLearner
+            self.critic_learner = CriticLearner(arch.critic, self.wm, buffer,
+                                                old_fraction=old_fraction)
 
     def loss(self, obs, actions, visited, events, alive):
         B, H = actions.shape
@@ -61,6 +68,8 @@ class ContinualLearner:
         self.wm.predictor.eval()
         for p, rg in zip(self.cost.parameters(), cost_frozen):
             p.requires_grad = rg
+        if self.critic_learner is not None:        # la critique apprend aussi en vivant
+            self.critic_learner.update()
         self.n_updates += 1
         return total / (steps or self.steps)
 

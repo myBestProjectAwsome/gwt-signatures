@@ -129,7 +129,7 @@ if __name__ == "__main__":
     if args.episodes_vie:
         print(f"  vie de l'agent complet ({args.episodes_vie} épisodes)...", flush=True)
         ag = load_task_agent()
-        life = Life(ag, path=Path("/tmp/long_range_life_unused.pt"))
+        life = Life(ag, learn_critic=False, path=Path("/tmp/long_range_life_unused.pt"))
         for i in range(args.episodes_vie):
             life.live_one()
             if (i + 1) % 500 == 0:

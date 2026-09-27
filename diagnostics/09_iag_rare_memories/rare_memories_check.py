@@ -50,9 +50,9 @@ from mini_iag.train_keydoor import STEP4, load_task_agent, train  # noqa: E402
 
 OUT = Path(__file__).with_name("rare_memories_results")
 N_EVAL = 150
-CONDITIONS = {"vie, révision au hasard": dict(rare_bonus=None, explore_fraction=0.0),
-              "vie, révision prioritaire": dict(rare_bonus="défaut", explore_fraction=0.0),
-              "+ exploration libre": dict(rare_bonus="défaut", explore_fraction=0.25)}
+CONDITIONS = {"vie, révision au hasard": dict(rare_bonus=None, explore_fraction=0.0, learn_critic=False),
+              "vie, révision prioritaire": dict(rare_bonus="défaut", explore_fraction=0.0, learn_critic=False),
+              "+ exploration libre": dict(rare_bonus="défaut", explore_fraction=0.25, learn_critic=False)}
 
 
 @torch.no_grad()
