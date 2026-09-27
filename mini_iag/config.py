@@ -46,6 +46,7 @@ class Config:
     max_steps: int = 30
     value_weight: float = 1.0   # poids d'une critique d'ÉTATS au bout de l'horizon (abandonné en v2)
     critic_weight: float = 0.0  # poids de la critique d'ACTIONS sur l'état réel (v2 : 2.0)
+    map_weight: float = 30.0    # poids de la carte mentale, si l'agent en a une (diagnostic 12)
     value_discount: float = 0.9
 
     seed: int = 0

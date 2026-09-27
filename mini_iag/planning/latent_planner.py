@@ -45,7 +45,7 @@ class LatentPlanner:
                                                          repeat=self.horizon)))
 
     @torch.no_grad()
-    def plan(self, z, forbidden=()):
+    def plan(self, z, forbidden=(), obs=None):
         """z : (1, D) état latent actuel. forbidden : premières actions à exclure
         (l'agent a constaté qu'elles ne font rien ici). Renvoie un Plan."""
         P, H, cfg = self.plans, self.horizon, self.cfg
@@ -67,7 +67,15 @@ class LatentPlanner:
         else:
             fam = torch.zeros(len(P), H)
         scores = (weight * (step_cost + cfg.novelty_weight * fam)).sum(1)
-        if self.critic is not None and getattr(cfg, "critic_weight", 0) > 0 and hasattr(self.critic, "q") \
+        uses_obs = getattr(self.critic, "uses_obs", False)
+        if uses_obs and obs is not None and getattr(self.cost, "target", None) and cfg.map_weight > 0:
+            # carte mentale : valeur de chaque première action, lue sur la carte de toutes
+            # les cases ; normalisée par la meilleure (même poids à 3 pas qu'à 20 pas)
+            q = self.critic.q(torch.as_tensor(obs)[None], self.cost.target)[0]
+            if q.max() > 1e-4:
+                scores = scores - cfg.map_weight * self.cost.w_success * (q / q.max())[P[:, 0]]
+        elif self.critic is not None and not uses_obs and getattr(cfg, "critic_weight", 0) > 0 \
+                and hasattr(self.critic, "q") \
                 and getattr(self.cost, "target", None):
             # planification longue : la critique d'actions, apprise sur l'expérience réelle,
             # juge la PREMIÈRE action depuis l'état RÉEL (jamais un état imaginé)

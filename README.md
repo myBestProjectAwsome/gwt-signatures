@@ -836,6 +836,76 @@ La case imaginée est lue par une sonde linéaire, apprise sur les états réels
 python diagnostics/11_iag_learning_by_living/living_check.py   # ~45 minutes
 ```
 
+### La carte mentale : planifier loin
+
+```bash
+python -m mini_iag.train_map      # ~20 minutes, écrit checkpoints/mental_map.pt (après l'étape 4a)
+```
+
+Le test blanc (diagnostic 10) a désigné le principal manque : la **portée**. L'agent réussissait presque tout à 1-3 pas, et environ 20 % au-delà de 10 pas. L'imagination voit 5 pas devant, et la critique d'actions, un réseau qui lit le vecteur latent en une seule passe, devine mal plus loin. Trouver un chemin de 20 pas dans un labyrinthe demande de **propager** l'information de proche en proche, ce qu'un réseau à une passe fait mal.
+
+#### Ce qui a été construit
+
+La carte mentale ([`mental_map.py`](mini_iag/modules/mental_map.py)) calcule, pour chaque événement visé (objectif, clé, porte), une **valeur sur chaque case** de la carte :
+
+1. Elle apprend ce qu'il y a sur chaque case : la **récompense** (l'événement visé arrive-t-il si j'y entre ?), le **blocage** (est-ce que je reste sur place ?), le **danger** (est-ce que j'y meurs ?).
+2. Elle apprend **où mène chaque action** : un petit noyau 3×3 par action. Au départ, elle ne sait pas que « haut » mène à la case du dessus. Elle l'a appris seule (vérifié : les quatre noyaux pointent vers les bonnes cases).
+3. La valeur **se propage de case en case** pendant 25 itérations : `valeur(case) = (1 − blocage)(1 − danger) × [récompense + (1 − récompense) × 0,95 × meilleure valeur voisine]`. C'est l'itération sur les valeurs de Bellman, faite par convolution : l'idée des *Value Iteration Networks* (Tamar et al., 2016), et une forme simple de **carte cognitive** (Tolman, 1948).
+4. On lit la valeur de chaque action à la position de l'agent.
+
+Elle est apprise par **Q-learning hors ligne** ([`map_trainer.py`](mini_iag/training/map_trainer.py)) sur la même expérience que la critique : l'agent qui marchait au hasard sur les cartes publiques. Rien n'est codé à la main : ni où sont les murs, ni ce que fait une porte, ni la direction des actions.
+
+Dans le planificateur, la carte **remplace la critique d'actions**. Sa valeur est normalisée par la meilleure action, pour peser autant à 3 pas qu'à 20 pas, avec un poids de 30 : la carte décide, l'imagination départage.
+
+**Ce qui a été essayé et non retenu :** un poids de 2 (la carte ne pèse pas assez face à l'imagination : 75 / 73 / 49 %), et une erreur relative à l'entraînement (instable : une direction d'action mal apprise, 30 à 40 % d'actions optimales).
+
+#### Diagnostic 12
+
+**Dossier :** [`diagnostics/12_iag_mental_map/`](diagnostics/12_iag_mental_map/). 150 cartes de contrôle par tâche, en **zéro essai** : aucun de ces agents n'a jamais pratiqué aucune tâche. Deux familles de cartes publiques : les cartes standard (2 murs intérieurs), et une famille ajoutée ici, **murs nombreux** (7 murs intérieurs, chemins plus longs), que ni la carte ni l'agent n'ont jamais vue à l'entraînement.
+
+![Carte mentale](diagnostics/12_iag_mental_map/mental_map_results.png)
+
+| Agent | Standard : objectif / clé / objectif puis clé | Murs nombreux : objectif / clé / objectif puis clé | Lave |
+|---|---|---|---|
+| Oracle | 100 / 100 / 100 % | 100 / 100 / 100 % | 0 % |
+| **Carte + imagination** | **93,3 / 94,7 / 81,3 %** | **94,7 / 96 / 86,7 %** | **0 %** |
+| Carte seule | 92,7 / 94,7 / 78 % | 93,3 / 96 / 85,3 % | 0 % |
+| Complet, avec critique d'actions (avant) | 75,3 / 66 / 45,3 % | 66 / 67,3 / 41,3 % | 5 à 10 % |
+| Aléatoire | 25,3 / 24 / 2,7 % | 33,3 / 40 / 10,7 % | 50 à 80 % |
+
+| Succès selon la distance (moyenne des 6 cas) | 1-3 pas | 4-6 pas | 7-9 pas | 10+ pas |
+|---|---|---|---|---|
+| Complet (avant) | 85 % | 54 % | 28 % | 5 % |
+| **Carte + imagination** | **100 %** | **93 %** | **68 %** | **24 %** |
+
+| Action optimale choisie, cartes standard (1-3 / 4-6 / 7-9 / 10+ pas) | objectif | clé | porte |
+|---|---|---|---|
+| Critique d'actions | 86 / 76 / 45 / 57 % | 86 / 71 / 68 / 100 % | 81 / 82 / 74 / 68 % |
+| **Carte mentale** | **96 / 81 / 63 / 57 %** | **96 / 85 / 79 / 40 %** | **93 / 91 / 84 / 80 %** |
+
+(Au-delà de 10 pas, il n'y a que 5 à 7 cas pour l'objectif et la clé : ces chiffres-là ne veulent rien dire.)
+
+**V1 de substitution** (tâche « objectif puis clé » jamais pratiquée, succès ÷ oracle, seuil 0,75) : **0,81** sur les cartes standard, **0,87** sur les cartes à murs nombreux. Avant : 0,45 et 0,41.
+
+**Ce qu'on apprend :**
+
+1. **C'est le plus grand progrès du projet.** Sur toutes les tâches et les deux familles de cartes : +18 à +45 points, et la lave tombe à **0 %** (la carte sait où l'on meurt, sur toute la carte). Pour la première fois, **le test blanc est réussi**.
+2. **Elle généralise à des cartes d'un type jamais vu.** Sur les cartes à murs nombreux, qui n'ont servi à aucun réglage, elle fait aussi bien que sur les cartes standard (86,7 % sur la tâche composée).
+3. **La portée a progressé, mais reste la limite** : 68 % à 7-9 pas (contre 28 %), 24 % au-delà de 10 pas (contre 5 %).
+4. **L'imagination devient presque décorative pour décider.** La carte seule fait presque aussi bien que la carte avec l'imagination (1 à 3 points d'écart). C'est un résultat important, et gênant pour l'idée de départ : le modèle du monde JEPA, cœur de la feuille de route, ne pèse plus beaucoup dans les décisions. Il reste utile pour détecter les événements et pour l'apprentissage en vivant, mais c'est la carte qui planifie.
+
+**Limites, à ne pas cacher :**
+
+- **La carte repose sur un a priori fort** : le monde est fait de cases, où l'on se déplace de proche en proche. Cet a priori est donné par construction. Elle ne marcherait pas telle quelle dans un monde qui n'est pas une grille. Ce qui est appris, c'est tout le contenu (quoi est où, ce qui bloque, ce qui tue, où mène chaque action).
+- **Le poids 30 a été choisi sur 60 cartes standard de contrôle**, les mêmes graines que ce diagnostic. Les cartes à murs nombreux, elles, n'ont servi à aucun réglage.
+- **Le test blanc remplace l'humain par l'oracle (100 %).** Le vrai test est plus dur : des portes, et des chemins jusqu'à 50 pas.
+- **La carte n'apprend pas en vivant** (pas encore).
+
+```bash
+python diagnostics/12_iag_mental_map/mental_map_check.py   # ~45 minutes
+python -m mini_iag.live                                    # la vie utilise la carte si elle existe (--sans-carte sinon)
+```
+
 ---
 
 ## Feuille de route
@@ -854,7 +924,8 @@ python diagnostics/11_iag_learning_by_living/living_check.py   # ~45 minutes
 - [x] **Test blanc** (diagnostic 10) : tâche composée jamais pratiquée, V1 de substitution 0,62 (raté). Critique qui apprend en vivant (+7 points). Le progrès « en vivant » vient surtout d'un alignement imagination/coût
 - [x] **Apprendre en vivant, mesuré honnêtement** (diagnostic 11) : témoin sans vie, règle nouvelle (la glace) et nouveau sens. Découverte partielle de la glace, mais interférence : pas encore d'apprentissage utile
 - [ ] **Apprendre en vivant sans interférence** : nouveau sens appris en premier, module d'imagination ajouté pour les nouveautés
-- [ ] **Portée de la planification** : points de repère et planification hiérarchique (le principal manque mesuré par le test blanc)
+- [x] **Carte mentale** (diagnostic 12) : valeurs propagées sur toutes les cases (Value Iteration Network appris par Q-learning). Test blanc réussi (0,81 et 0,87), lave 0 %, portée 7-9 pas 28 → 68 %
+- [ ] **Au-delà de 10 pas** (24 %), et une carte qui apprend en vivant
 - [ ] **Mini-IAG, étape 5** : coût verrouillé, passage du test final, verdict publié quel qu'il soit
 - [ ] **Module social** : remplacer la phrase fixe « l'utilisateur ne m'a pas parlé » (fausse juste après un message) par un contenu qui reflète le temps écoulé depuis le dernier message
 - [ ] **Exp. 2** : Adaptation (fatigue) pour une ignition transitoire, puis compétition entre deux stimuli. Seul l'un d'eux doit accéder au workspace (goulot attentionnel).
@@ -939,10 +1010,14 @@ python diagnostics/11_iag_learning_by_living/living_check.py   # ~45 minutes
 │   │   ├── rehearsal_check.py
 │   │   ├── rehearsal_results.json
 │   │   └── rehearsal_results.png
-│   └── 11_iag_learning_by_living/
-│       ├── living_check.py
-│       ├── living_results.json
-│       └── living_results.png
+│   ├── 11_iag_learning_by_living/
+│   │   ├── living_check.py
+│   │   ├── living_results.json
+│   │   └── living_results.png
+│   └── 12_iag_mental_map/
+│       ├── mental_map_check.py
+│       ├── mental_map_results.json
+│       └── mental_map_results.png
 ├── evaluation/                  # Test final pré-enregistré (jamais importé par mini_iag/)
 │   ├── PROTOCOLE.md             # question, cas, règles du verdict, limites
 │   ├── registration.json        # empreintes SHA-256 + date d'enregistrement
@@ -973,6 +1048,7 @@ python diagnostics/11_iag_learning_by_living/living_check.py   # ~45 minutes
 │   ├── architecture_v2.py       # ArchitectureV2 (coût configurable + critique)
 │   ├── data_keydoor.py          # collecte dans le monde v2
 │   ├── train_keydoor.py         # étape 4a : python -m mini_iag.train_keydoor
+│   ├── train_map.py             # carte mentale : python -m mini_iag.train_map
 │   ├── live.py                  # étape 4b : python -m mini_iag.live (la vie continue)
 │   ├── life/
 │   │   ├── life.py              # Life (boucle de vie, sauvegarde, reprise)
@@ -989,6 +1065,7 @@ python diagnostics/11_iag_learning_by_living/living_check.py   # ~45 minutes
 │   │   ├── coordination_trainer.py  # CoordinationTrainer (coût sur états imaginés)
 │   │   ├── critic_trainer.py        # CriticTrainer (itération de valeur dans l'imagination)
 │   │   ├── offline_q_trainer.py     # OfflineQTrainer (Q-learning hors ligne, expérience réelle)
+│   │   ├── map_trainer.py           # MapTrainer (Q-learning hors ligne de la carte mentale)
 │   │   └── selection_readout.py     # SelectionReadout (lecture des slots)
 │   ├── environment/
 │   │   ├── gridworld.py         # GridWorld (monde en grille, étapes 1 à 3)
@@ -1005,6 +1082,7 @@ python diagnostics/11_iag_learning_by_living/living_check.py   # ~45 minutes
 │       ├── configurable_cost.py # ConfigurableCost (le configurateur, monde v2)
 │       ├── critic.py            # Critic (valeur apprise dans l'imagination, abandonnée)
 │       ├── action_critic.py     # ActionCritic (Q-learning hors ligne, planification longue)
+│       ├── mental_map.py        # MentalMap (carte mentale : valeurs propagées sur toutes les cases)
 │       └── vector_memory.py     # VectorMemory (base vectorielle)
 └── psyche/                      # Prototype comportemental
     ├── __init__.py

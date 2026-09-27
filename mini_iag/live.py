@@ -23,6 +23,7 @@ from pathlib import Path
 
 from .life import LIFE_PATH, LIFE_TASKS, Life
 from .train_keydoor import STEP4, load_task_agent, train
+from .train_map import MAP_PATH
 
 ARROWS = "↑↓←→"
 COMMANDS = {"o": LIFE_TASKS[0], "c": LIFE_TASKS[1], "oc": LIFE_TASKS[2], "a": None}
@@ -103,6 +104,7 @@ def main():
     p.add_argument("--episodes", type=int, default=0, help="0 = sans fin")
     p.add_argument("--bilan", action="store_true")
     p.add_argument("--oublier", action="store_true")
+    p.add_argument("--sans-carte", action="store_true", help="sans la carte mentale")
     args = p.parse_args()
 
     if not STEP4.exists():
@@ -112,7 +114,10 @@ def main():
         LIFE_PATH.rename(LIFE_PATH.with_suffix(".pt.bak"))
         print("Nouvelle vie : l'ancienne est gardée dans life.pt.bak")
     print("Réveil de la mini-IAG...")
-    life = Life(load_task_agent())
+    use_map = MAP_PATH.exists() and not args.sans_carte
+    if not MAP_PATH.exists() and not args.sans_carte:
+        print("Pas de carte mentale (python -m mini_iag.train_map, ~20 minutes) : elle vit sans.")
+    life = Life(load_task_agent(mental_map=MAP_PATH if use_map else None))
     print("Elle reprend sa vie." if life.load() else "Première vie : elle part de l'étape 4a.")
 
     if args.bilan:

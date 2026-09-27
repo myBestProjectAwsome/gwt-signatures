@@ -37,15 +37,22 @@ class Decision:
 
 class Agent:
     def __init__(self, arch, cfg, cue, novelty_sigma, use_memory=True, use_workspace=True,
-                 use_critic=True, top_k=8, temperature=0.05):
+                 use_critic=True, use_map=True, top_k=8, temperature=0.05):
         self.arch, self.cfg, self.cue = arch, cfg, cue
         self.memory = arch.memory if use_memory else None
         self.use_workspace = use_workspace
         self.top_k, self.temperature = top_k, temperature
         self.planner = LatentPlanner(arch.world_model, arch.cost, cfg,
                                      memory=self.memory, novelty_sigma=novelty_sigma,
-                                     critic=getattr(arch, "critic", None) if use_critic else None)
+                                     critic=self._critic(arch, use_critic, use_map))
         self.sigma = novelty_sigma
+
+    @staticmethod
+    def _critic(arch, use_critic, use_map):
+        """La carte mentale (si elle existe) remplace la critique d'actions."""
+        if use_map and getattr(arch, "mental_map", None) is not None:
+            return arch.mental_map
+        return getattr(arch, "critic", None) if use_critic else None
 
     def reset(self):
         """Nouvel épisode : la mémoire des états visités est vidée."""
@@ -58,7 +65,7 @@ class Agent:
         fam_now = float(self.memory.familiarity(z, self.sigma)[0]) if self.memory else 0.0
         if self.memory is not None:                                             # 2. se souvenir
             self.memory.write(z)
-        plan = self.planner.plan(z, forbidden)                                  # 3. simuler
+        plan = self.planner.plan(z, forbidden, obs=obs)                         # 3. simuler
         if not self.use_workspace:
             return Decision(plan.action, plan, plan.actions, 1.0, True, fam_now)
         idx = plan.ranking[:self.top_k]                                         # 4. sélectionner

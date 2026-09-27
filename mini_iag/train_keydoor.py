@@ -86,12 +86,19 @@ def train(out=STEP4, verbose=True, **overrides):
     say(f"Terminé en {time.time() - t0:.0f} s. Sauvegardé dans {out}")
 
 
-def load_task_agent(path=STEP4, cfg_overrides=None, **flags):
+def load_task_agent(path=STEP4, cfg_overrides=None, mental_map=None, **flags):
+    """mental_map : chemin d'une carte mentale entraînée (python -m mini_iag.train_map),
+    ou None (sans carte)."""
     from .task_agent import TaskAgent
     ckpt = torch.load(path, weights_only=False)
     cfg = Config(**{**ckpt["config"], **(cfg_overrides or {})})
     arch = ArchitectureV2(cfg)
     arch.load_state_dict(ckpt["architecture"])
+    if mental_map is not None:
+        from .modules.mental_map import MentalMap
+        state = torch.load(mental_map, weights_only=False)
+        arch.mental_map = MentalMap(cfg, **state["params"])
+        arch.mental_map.load_state_dict(state["map"])
     arch.eval()
     return TaskAgent(arch, cfg, ckpt["cue"], ckpt["novelty_sigma"], **flags)
 
