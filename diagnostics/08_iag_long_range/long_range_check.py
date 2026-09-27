@@ -10,6 +10,7 @@ jamais les tâches ni les cartes du test final) :
   complet + vie           l'agent complet après N épisodes de vie continue
 Références : oracle (plus court chemin), aléatoire.
 Options : --episodes-vie N (défaut 1500 ; 0 pour sauter), --replot.
+Seul le passage complet (1 500 épisodes) met à jour la figure et les données du README.
 """
 import argparse
 import json
@@ -143,6 +144,10 @@ if __name__ == "__main__":
             d = "  ".join(f"{v:4.0f}%" if v is not None else "    —" for v in r[t]["par_distance"].values())
             print(f"  {n:18} succès {r[t]['succès']:5.1f}%  lave {r[t]['lave']:5.1f}%  "
                   f"bloqué {r[t]['bloqué']:5.1f}%   par distance {d}")
-    OUT.with_suffix(".json").write_text(json.dumps(S, indent=1, ensure_ascii=False))
-    figure(S, OUT.with_suffix(".png"))
-    print(f"\nFigure : {OUT.with_suffix('.png').name}")
+    if args.episodes_vie == 1500:
+        OUT.with_suffix(".json").write_text(json.dumps(S, indent=1, ensure_ascii=False))
+        figure(S, OUT.with_suffix(".png"))
+        print(f"\nFigure : {OUT.with_suffix('.png').name}")
+    else:
+        # la figure et les données du README correspondent au protocole complet (1 500 épisodes)
+        print("\n(passage partiel : figure et données du README non modifiées)")

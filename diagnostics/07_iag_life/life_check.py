@@ -150,6 +150,9 @@ if __name__ == "__main__":
         print(f"  {e:24}" + "".join(
             f"{R[n]['physics'][e + '@1']:13.3f}/{R[n]['physics'][e + '@3']:.3f}/{R[n]['physics'][e + '@5']:.3f}"
             for n in R))
-    OUT.with_suffix(".json").write_text(json.dumps(R, indent=1, ensure_ascii=False))
-    figure(R, OUT.with_suffix(".png"))
-    print(f"\nFigure : {OUT.with_suffix('.png').name}")
+    if args.episodes == 1500:
+        OUT.with_suffix(".json").write_text(json.dumps(R, indent=1, ensure_ascii=False))
+        figure(R, OUT.with_suffix(".png"))
+        print(f"\nFigure : {OUT.with_suffix('.png').name}")
+    else:
+        print("\n(passage partiel : figure et données du README non modifiées)")
