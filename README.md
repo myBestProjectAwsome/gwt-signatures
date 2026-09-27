@@ -640,7 +640,7 @@ La même procédure sert pour apprendre une tâche en quelques épisodes (`TaskA
 
 **Limites :**
 
-- **L'oubli de la porte** (point 3) est la prochaine chose à corriger : faire répéter en priorité les souvenirs rares (clé, porte), plutôt que de tirer les souvenirs anciens au hasard.
+- **L'oubli de la porte** (point 3) : deux remèdes ont été essayés ensuite (diagnostic 9), sans succès.
 - **Les progrès plafonnent vite.** Pendant la vie, la réussite monte d'environ 55 % à 65-70 % en 200 à 300 épisodes, puis stagne. Seule l'imagination apprend, pas la perception.
 - **L'espace de travail n'a toujours aucun rôle réel.**
 
@@ -695,6 +695,46 @@ Cela revient à combiner une IA **à modèle** (qui imagine) et une IA **sans mo
 - **La critique ne connaît la porte que par l'expérience d'origine**, où les ouvertures sont rares, et la vie ne lui apprend rien sur les portes : sa valeur pour « porte » n'a pas été vérifiée sur une tâche.
 - **Les diagnostics 06 et 07 sont antérieurs à cette critique.** Leurs lignes « complet » correspondent à l'agent sans critique.
 
+### Contre l'oubli de la porte : deux remèdes, aucun ne suffit
+
+L'étape 4b l'a mesuré : en vivant, l'imagination oublie peu à peu ce que fait une porte. Deux tâches du test final demandent d'ouvrir une porte. Deux remèdes ont été essayés. Tous deux sont **génériques** : aucune tâche de la vie ne récompense l'ouverture d'une porte, et aucune tâche ni carte du test n'a servi.
+
+1. **Révision prioritaire des souvenirs rares** ([`experience_buffer.py`](mini_iag/life/experience_buffer.py)). Les souvenirs anciens ne sont plus tirés au hasard, mais pondérés par leurs événements rares : ouverture de porte ×11, clé ×4, objectif ×2. Les ouvertures de porte passent de 1,4 % à environ 10 % des souvenirs anciens révisés.
+2. **Exploration libre** ([`life.py`](mini_iag/life/life.py)). Hypothèse : la vie ne montre presque jamais « avoir la clé en main », car les tâches s'arrêtent au ramassage de la clé. Un quart des épisodes n'a donc **aucune tâche** : le module de coût ne vise aucun événement, et l'agent se promène, guidé seulement par la curiosité (la mémoire le pousse vers les endroits nouveaux) et par la peur de la lave.
+
+#### Diagnostic 9
+
+**Dossier :** [`diagnostics/09_iag_rare_memories/`](diagnostics/09_iag_rare_memories/). 1 500 épisodes de vie par condition, en partant du même agent (complet, avec critique). Mesures sur l'expérience d'origine (graine de contrôle) et sur les tâches publiques (150 cartes de contrôle).
+
+![Oubli de la porte](diagnostics/09_iag_rare_memories/rare_memories_results.png)
+
+| | Avant la vie | Vie, révision au hasard | Vie, révision prioritaire | + exploration libre |
+|---|---|---|---|---|
+| Portes ouvertes pendant la vie | — | 54 | 48 | **116** |
+| Pas vécus clé en main | — | 4 944 | 4 957 | **8 662** |
+| **Anticipation de la porte**, AUC à 1 / 3 / 5 pas | **0,993 / 0,959 / 0,944** | 0,987 / 0,909 / 0,917 | 0,985 / 0,925 / 0,900 | 0,991 / 0,909 / 0,915 |
+| Erreur d'imagination, porte poussée sans clé (bas = mieux) | **6,88** | 7,35 | 7,21 | 7,45 |
+| Erreur d'imagination, autres pas | 5,28 | **4,32** | 4,60 | 4,48 |
+| objectif | 75,3 % (lave 6,7 %) | 84,7 % (lave 5,3 %) | 86,7 % (lave 5,3 %) | 86,7 % (lave 3,3 %) |
+| clé | 66 % (lave 5,3 %) | 79,3 % (lave 6 %) | 76 % (lave 6,7 %) | 75,3 % (lave 5,3 %) |
+| objectif puis clé | 45,3 % (lave 9,3 %) | 53,3 % (lave 11,3 %) | 56 % (lave 9,3 %) | 50 % (lave 12 %) |
+
+**Ce qu'on apprend :**
+
+1. **Aucun des deux remèdes ne corrige l'oubli de la porte.** L'exploration libre fait bien ce qu'on attendait d'elle : deux fois plus de portes ouvertes, 1,7 fois plus de pas clé en main. Mais l'anticipation de la porte à 5 pas reste autour de 0,90-0,92 dans les trois vies, contre 0,944 avant. L'erreur quand l'agent pousse une porte fermée augmente dans les trois cas, alors qu'elle baisse partout ailleurs.
+2. **Le manque de données n'était donc pas la (seule) cause.** Hypothèse restante, non vérifiée : seule l'imagination apprend en vivant, alors que la perception et le module de coût restent figés. Affiner l'imagination sur la lave et les murs (la grande majorité des pas) la fait dériver sur un cas rare que les modules figés ne l'aident pas à préserver.
+3. **Les écarts entre conditions sont dans le bruit.** Le même diagnostic lancé deux fois ne donne pas les mêmes chiffres (la vie n'est pas entièrement déterministe) : la condition « révision prioritaire » a donné 82,7 / 79,3 / 57,3 % au premier passage, et 86,7 / 76 / 56 % au second. Les écarts de 3 à 4 points entre colonnes ne sont donc pas significatifs. Seul l'écart **avant / après la vie** l'est : +10 points environ sur chaque tâche.
+
+**Décision :**
+
+- La révision prioritaire reste activée : elle ne coûte rien et n'a rien dégradé de mesurable.
+- L'exploration libre reste dans le code mais est **désactivée par défaut** (`Life(explore_fraction=0.0)`) : elle ne change rien de mesurable, et la règle du dépôt dit que ce qui ne change rien est décoratif.
+- L'oubli de la porte reste une **limite connue** avant le test final. Il est modéré (AUC 0,944 → 0,91 à 5 pas, 0,99 à 1 pas dans tous les cas), mais il faudra en tenir compte pour interpréter les tâches « porte » du test.
+
+```bash
+python diagnostics/09_iag_rare_memories/rare_memories_check.py   # ~20 minutes
+```
+
 ---
 
 ## Feuille de route
@@ -709,7 +749,7 @@ Cela revient à combiner une IA **à modèle** (qui imagine) et une IA **sans mo
 - [x] **Mini-IAG, étape 4a** : monde avec clé et porte, buts variables (configurateur), apprentissage par surprise
 - [x] **Mini-IAG, étape 4b** : vie continue sur l'ordinateur, apprentissage continu (l'imagination se corrige en vivant), sauvegarde et reprise
 - [x] **Planification longue** : critique d'actions apprise sur l'expérience réelle, planificateur hybride
-- [ ] **Répétition prioritaire des souvenirs rares**, contre l'oubli de la porte (mesuré à l'étape 4b)
+- [x] **Contre l'oubli de la porte** : révision prioritaire des souvenirs rares, exploration libre (diagnostic 9 : ni l'une ni l'autre ne suffit, limite connue)
 - [ ] **Mini-IAG, étape 5** : coût verrouillé, passage du test final, verdict publié quel qu'il soit
 - [ ] **Module social** : remplacer la phrase fixe « l'utilisateur ne m'a pas parlé » (fausse juste après un message) par un contenu qui reflète le temps écoulé depuis le dernier message
 - [ ] **Exp. 2** : Adaptation (fatigue) pour une ignition transitoire, puis compétition entre deux stimuli. Seul l'un d'eux doit accéder au workspace (goulot attentionnel).
@@ -782,10 +822,14 @@ Cela revient à combiner une IA **à modèle** (qui imagine) et une IA **sans mo
 │   │   ├── life_check.py
 │   │   ├── life_results.json
 │   │   └── life_results.png
-│   └── 08_iag_long_range/
-│       ├── long_range_check.py
-│       ├── long_range_results.json
-│       └── long_range_results.png
+│   ├── 08_iag_long_range/
+│   │   ├── long_range_check.py
+│   │   ├── long_range_results.json
+│   │   └── long_range_results.png
+│   └── 09_iag_rare_memories/
+│       ├── rare_memories_check.py
+│       ├── rare_memories_results.json
+│       └── rare_memories_results.png
 ├── evaluation/                  # Test final pré-enregistré (jamais importé par mini_iag/)
 │   ├── PROTOCOLE.md             # question, cas, règles du verdict, limites
 │   ├── registration.json        # empreintes SHA-256 + date d'enregistrement

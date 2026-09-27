@@ -71,7 +71,7 @@ def progress_plot(life, path):
     import matplotlib.pyplot as plt
     import numpy as np
 
-    h = life.history
+    h = [x for x in life.history if x["task"] != "exploration libre"]   # épisodes avec tâche
     if len(h) < 50:
         print("Pas assez d'épisodes pour une courbe (il en faut au moins 50).")
         return
@@ -81,12 +81,13 @@ def progress_plot(life, path):
     fig, ax = plt.subplots(1, 2, figsize=(13, 4.2))
     for k, c in (("succès", "#2a78d6"), ("lave", "#eb6834"), ("bloqué", "#8a8980")):
         ax[0].plot(ep[w - 1:], roll(k), color=c, lw=2, label=k)
-    ax[0].set(title=f"Issues (moyenne glissante sur {w} épisodes)", xlabel="épisode vécu",
+    ax[0].set_xlabel("épisode avec tâche")
+    ax[0].set(title=f"Issues (moyenne glissante sur {w} épisodes)",
               ylabel="%", ylim=(0, 100))
     ax[0].legend(frameon=False)
     s = np.array([x["surprise"] for x in h])
     ax[1].plot(ep[w - 1:], np.convolve(s, np.ones(w) / w, "valid"), color="#1baf7a", lw=2)
-    ax[1].set(title="Surprise (écart entre imagination et réalité)", xlabel="épisode vécu")
+    ax[1].set(title="Surprise (écart entre imagination et réalité)", xlabel="épisode avec tâche")
     for a in ax:
         a.spines[["top", "right"]].set_visible(False)
         a.grid(axis="y", color="#e6e5df")
@@ -127,7 +128,7 @@ def main():
         d = agent.last
         plan = "".join(ARROWS[a] for a in d.chosen)
         print("\033[2J\033[H" if sys.stdout.isatty() else "", end="")
-        print(f"épisode {life.episode + 1} — tâche « {agent.tracker.task.name} » — pas {t}\n")
+        print(f"épisode {life.episode + 1} — tâche « {(agent.tracker.task.name if agent.tracker else 'exploration libre')} » — pas {t}\n")
         print(world.render())
         print(f"\n  plan imaginé {plan}   succès prévu {max(d.plan.success):.2f}"
               f"   danger prévu {max(d.plan.danger):.2f}")
@@ -148,7 +149,8 @@ def main():
             elif cmd == "q":
                 break
             r = life.live_one(on_step)
-            mark = {"succès": "✔", "lave": "✘ lave", "bloqué": "… bloqué"}[r["outcome"]]
+            mark = {"succès": "✔", "lave": "✘ lave", "bloqué": "… bloqué",
+                    "exploration": "~ exploré"}[r["outcome"]]
             learned = "  (+ séance d'apprentissage)" if r["loss"] is not None else ""
             print(f"épisode {r['episode']:5d}  {r['task']:18} {mark:9} en {r['steps']:2d} pas"
                   f"   surprise {r['surprise']:5.1f}{learned}")

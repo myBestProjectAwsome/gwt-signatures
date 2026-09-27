@@ -40,11 +40,12 @@ class TaskAgent:
         return self.arch.cost
 
     def reset(self, task):
-        self.tracker = TaskTracker(task)
+        """task=None : exploration libre (aucun événement visé)."""
+        self.tracker = TaskTracker(task) if task is not None else None
         self.prev, self.last = None, None
         self.useless = {}
         self.core.reset()
-        self.arch.cost.configure(self.tracker.next_event)
+        self.arch.cost.configure(self.tracker.next_event if self.tracker else None)
 
     def practice(self, make_world, task, episodes, learn_every=5, max_steps=50):
         """S'entraîner sur une tâche pendant `episodes` épisodes, en apprenant en vivant
@@ -64,11 +65,12 @@ class TaskAgent:
         if self.prev is not None:
             if self.use_surprise and np.array_equal(self.prev, obs):
                 self.useless.setdefault(obs.tobytes(), set()).add(self.last.action)
-            before = self.tracker.progress
-            self.tracker.update(self.detect(self.prev, obs))
-            if self.tracker.progress != before and not self.tracker.done:
-                self.arch.cost.configure(self.tracker.next_event)
-                self.core.reset()
+            if self.tracker is not None:
+                before = self.tracker.progress
+                self.tracker.update(self.detect(self.prev, obs))
+                if self.tracker.progress != before and not self.tracker.done:
+                    self.arch.cost.configure(self.tracker.next_event)
+                    self.core.reset()
         self.last = self.core.act(obs, tuple(self.useless.get(np.asarray(obs).tobytes(), ())))
         self.prev = obs
         return self.last.action

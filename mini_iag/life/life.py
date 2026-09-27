@@ -7,6 +7,15 @@ L'état complet (imagination apprise, souvenirs récents, historique) est
 sauvegardé et rechargé : éteindre l'ordinateur ne fait rien oublier.
 
 Tâches de la vie : les tâches publiques uniquement (jamais celles du test).
+
+Exploration libre : une part des épisodes (explore_fraction) n'a AUCUNE tâche.
+L'agent se promène, guidé seulement par la curiosité (la mémoire le pousse vers
+les endroits nouveaux) et la peur de la lave. Il ramasse des clés, se promène
+avec, ouvre des portes... sans qu'aucune tâche ne le lui demande. Sans cela,
+la vie ne montre presque jamais « avoir la clé en main » (les tâches s'arrêtent
+au ramassage). Mesuré (diagnostic 9) : elle double les portes ouvertes vécues,
+mais ne corrige pas l'oubli de la porte. Désactivée par défaut (0.0) : elle ne
+change rien de mesurable (« si le retirer ne change rien, c'est décoratif »).
 """
 import random
 import time
@@ -27,9 +36,10 @@ LIFE_BASE = 1_000_000          # graines des cartes de la vie (publiques, jamais
 LIFE_TASKS = TRAINING_TASKS + (Task("objectif puis clé", ("goal", "key"),
                                     "Va sur l'objectif, PUIS ramasse la clé."),)
 LIFE_PATH = Path("checkpoints/life.pt")
+EXPLORATION = "exploration libre"   # nom des épisodes sans tâche dans l'historique
 
 
-def anchor_segments(cfg, n_maps=1000):
+def anchor_segments(cfg, n_maps=2000):
     """Souvenirs anciens : un échantillon fixe de l'expérience d'origine (étape 4a)."""
     return collect_kd_segments(cfg, n_maps=n_maps, per_map=5, horizon=cfg.planning_horizon,
                                seed=TRAIN_SEED)
@@ -37,12 +47,15 @@ def anchor_segments(cfg, n_maps=1000):
 
 class Life:
     def __init__(self, agent, learn=True, learn_every=5, old_fraction=0.5, max_steps=40,
-                 path=LIFE_PATH, seed=0):
+                 path=LIFE_PATH, seed=0, rare_bonus="défaut", explore_fraction=0.0,
+                 explore_steps=30):
         self.agent, self.cfg = agent, agent.cfg
         self.learn, self.learn_every, self.max_steps = learn, learn_every, max_steps
+        self.explore_fraction, self.explore_steps = explore_fraction, explore_steps
         self.path = Path(path)
+        extra = {} if rare_bonus == "défaut" else {"rare_bonus": rare_bonus}
         self.buffer = ExperienceBuffer(anchor_segments(self.cfg), horizon=self.cfg.planning_horizon,
-                                       seed=seed)
+                                       seed=seed, **extra)
         self.learner = ContinualLearner(agent.arch, self.buffer, old_fraction=old_fraction)
         self.world = KeyDoorWorld(self.cfg)
         self.rng = random.Random(seed)
@@ -50,30 +63,38 @@ class Life:
 
     # ------------------------------------------------------------ un épisode
     def choose_task(self):
-        return self.forced_task or self.rng.choice(LIFE_TASKS)
+        """Une tâche publique, ou None (exploration libre) avec la probabilité explore_fraction."""
+        if self.forced_task:
+            return self.forced_task
+        if self.rng.random() < self.explore_fraction:
+            return None
+        return self.rng.choice(LIFE_TASKS)
 
     def live_one(self, on_step=None):
         task = self.choose_task()
         seed = LIFE_BASE + self.episode * 10
         for attempt in range(10):                  # carte soluble pour cette tâche
             self.world.reset(seed=seed + attempt)
-            if solvable(self.world, task):
+            if task is None or solvable(self.world, task):
                 break
-        outcome, steps, traj = run_episode(self.agent, self.world, task, self.max_steps, on_step)
+        steps_max = self.max_steps if task is not None else self.explore_steps
+        outcome, steps, traj = run_episode(self.agent, self.world, task, steps_max, on_step)
         surprise = self.learner.surprise(traj)
         self.buffer.add(traj)
         self.episode += 1
         loss = None
         if self.learn and self.episode % self.learn_every == 0:
             loss = self.learner.update()
-        record = {"episode": self.episode, "task": task.name, "outcome": outcome,
+        record = {"episode": self.episode, "task": task.name if task else EXPLORATION,
+                  "outcome": outcome,
                   "steps": steps, "surprise": surprise, "loss": loss, "time": time.time()}
         self.history.append(record)
         return record
 
     # ------------------------------------------------------------ bilan
     def recent(self, n=100, task=None):
-        h = [r for r in self.history if task in (None, r["task"])][-n:]
+        h = [r for r in self.history
+             if r["task"] != EXPLORATION and task in (None, r["task"])][-n:]
         if not h:
             return None
         return {k: 100 * float(np.mean([r["outcome"] == k for r in h]))

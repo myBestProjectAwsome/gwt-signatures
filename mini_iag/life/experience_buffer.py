@@ -10,16 +10,28 @@ Chaque lot d'apprentissage mélange les deux (moitié-moitié par défaut).
 C'est la parade classique à l'OUBLI CATASTROPHIQUE : un réseau entraîné
 seulement sur ses expériences récentes efface ce qu'il savait avant.
 
+Révision prioritaire des souvenirs rares : les souvenirs anciens ne sont pas
+tirés au hasard. Chacun reçoit un poids selon les événements qu'il contient
+(par défaut : x11 pour une porte ouverte, x4 pour une clé, x2 pour un objectif).
+Sans cela, les ouvertures de porte (1 à 2 % des souvenirs) ne sont presque
+jamais révisées, et l'agent les oublie en vivant (mesuré à l'étape 4b).
+
 Les lots sont des segments de H pas (H = 1 à horizon), au même format que
 data.Segments : (obs de départ, actions, états visités, événements, vivant).
 """
 import numpy as np
 import torch
 
+from ..data_keydoor import EVENT_ORDER
+
+RARE_BONUS = {"door": 10.0, "key": 3.0, "goal": 1.0}     # poids = 1 + somme des bonus présents
+
 
 class ExperienceBuffer:
-    def __init__(self, anchor_segments, horizon=5, capacity_steps=60_000, seed=0):
+    def __init__(self, anchor_segments, horizon=5, capacity_steps=60_000, seed=0,
+                 rare_bonus=RARE_BONUS):
         self.anchor = anchor_segments          # data.Segments (souvenirs anciens)
+        self.old_weights = self._weights(anchor_segments, rare_bonus)
         self.horizon = horizon
         self.capacity = capacity_steps
         self.episodes = []                     # liste de dicts numpy (trajectoires)
@@ -28,6 +40,21 @@ class ExperienceBuffer:
 
     def __len__(self):
         return self.n_steps
+
+    @staticmethod
+    def _weights(segments, rare_bonus):
+        """Probabilité de tirage de chaque souvenir ancien (révision prioritaire)."""
+        w = torch.ones(len(segments))
+        if rare_bonus:
+            present = (segments.events * segments.alive.unsqueeze(-1)).amax(1)   # (N, 4)
+            for event, bonus in rare_bonus.items():
+                w += bonus * present[:, EVENT_ORDER.index(event)]
+        return (w / w.sum()).numpy()
+
+    def rare_share(self, event):
+        """Part des tirages de souvenirs anciens qui contiennent `event`."""
+        present = (self.anchor.events * self.anchor.alive.unsqueeze(-1)).amax(1)
+        return float((torch.as_tensor(self.old_weights) * present[:, EVENT_ORDER.index(event)]).sum())
 
     def add(self, traj):
         if len(traj["action"]) == 0:
@@ -58,7 +85,7 @@ class ExperienceBuffer:
                 torch.tensor(np.array(alv)))
 
     def _old(self, n):
-        i = torch.as_tensor(self.rng.integers(len(self.anchor), size=n))
+        i = torch.as_tensor(self.rng.choice(len(self.anchor), size=n, p=self.old_weights))
         s = self.anchor
         return (s.obs[i].float(), s.actions[i], s.visited[i].float(), s.events[i].float(),
                 s.alive[i])

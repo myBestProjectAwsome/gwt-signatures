@@ -38,8 +38,9 @@ class ConfigurableCost(CostModule):
         self.target = "goal"
 
     def configure(self, event):
-        """Choisit l'événement qui compte comme succès pour la tâche en cours."""
-        if event not in EVENT_INDEX or event == "lava":
+        """Choisit l'événement qui compte comme succès pour la tâche en cours.
+        None : aucun (exploration libre, seuls comptent le danger et la curiosité)."""
+        if event is not None and (event not in EVENT_INDEX or event == "lava"):
             raise ValueError(f"événement visé invalide : {event}")
         self.target = event
 
@@ -55,5 +56,6 @@ class ConfigurableCost(CostModule):
 
     def forward(self, z):
         p = self.events(z)
-        danger, success = p[:, EVENT_INDEX["lava"]], p[:, EVENT_INDEX[self.target]]
+        danger = p[:, EVENT_INDEX["lava"]]
+        success = p[:, EVENT_INDEX[self.target]] if self.target else torch.zeros_like(danger)
         return danger, success, self.w_danger * danger - self.w_success * success

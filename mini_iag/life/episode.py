@@ -11,11 +11,11 @@ def run_episode(agent, world, task, max_steps, on_step=None):
     trajectoire : dict de tableaux numpy (obs, action, next_obs, events), un par pas.
     on_step(world, décision, pas) : appelé après chaque action (affichage en direct).
     """
-    tracker = TaskTracker(task)
+    tracker = TaskTracker(task) if task is not None else None   # None : exploration libre
     agent.reset(task)
     obs = world.observe()
     traj = {"obs": [], "action": [], "next_obs": [], "events": []}
-    outcome = "bloqué"
+    outcome = "bloqué" if tracker is not None else "exploration"
     for t in range(1, max_steps + 1):
         action = agent.act(obs)
         nxt, events, dead = world.step(action)
@@ -24,7 +24,7 @@ def run_episode(agent, world, task, max_steps, on_step=None):
         if on_step is not None:
             on_step(world, agent, t)
         obs = nxt
-        if tracker.update(events):
+        if tracker is not None and tracker.update(events):
             outcome = "succès"
             break
         if dead:
