@@ -859,6 +859,14 @@ Dans le planificateur, la carte **remplace la critique d'actions**. Sa valeur es
 
 **Ce qui a été essayé et non retenu :** un poids de 2 (la carte ne pèse pas assez face à l'imagination : 75 / 73 / 49 %), et une erreur relative à l'entraînement (instable : une direction d'action mal apprise, 30 à 40 % d'actions optimales).
 
+#### Version 2 : apprendre ce qu'il y a sur chaque case en y marchant
+
+La première version (Bellman seul) plafonnait à 24 % au-delà de 10 pas. Pour comprendre pourquoi, on a remplacé ses cartes apprises (récompense, blocage, danger) par les **vraies** cases, en gardant le même calcul. Résultat : 100 % d'actions optimales vers la clé, même loin. Le calcul était bon, c'étaient les cartes apprises qui étaient floues. Par exemple, la « récompense objectif » valait en moyenne 0,79 sur l'objectif, mais aussi jusqu'à 0,73 sur des cases vides. Et un « danger » allait jusqu'à 0,91 sur des cases libres, ce qui bloquait des chemins. Ces petites erreurs, propagées sur 10 cases, suffisent à tromper l'agent.
+
+La correction ([`map_trainer.py`](mini_iag/training/map_trainer.py), `cell_weight`) : **chaque pas vécu renseigne la case où l'agent est arrivé**. Un événement a-t-il eu lieu ? Est-il mort ? Est-il resté bloqué ? C'est exactement ce que l'agent constate en marchant, sur la même expérience qu'avant (le marcheur au hasard), sans rien de plus. Les cartes deviennent nettes : récompense 1,00 sur l'objectif et 0,01 ailleurs, danger 0,99 sur la lave et 0,001 ailleurs, blocage 0,97 sur les murs.
+
+Règle fixée **avant** d'essayer : une seule tentative, gardée seulement si la réussite au-delà de 10 pas dépasse nettement 24 %. Elle passe à 90-96 %.
+
 #### Diagnostic 12
 
 **Dossier :** [`diagnostics/12_iag_mental_map/`](diagnostics/12_iag_mental_map/). 150 cartes de contrôle par tâche, en **zéro essai** : aucun de ces agents n'a jamais pratiqué aucune tâche. Deux familles de cartes publiques : les cartes standard (2 murs intérieurs), et une famille ajoutée ici, **murs nombreux** (7 murs intérieurs, chemins plus longs), que ni la carte ni l'agent n'ont jamais vue à l'entraînement.
@@ -868,42 +876,74 @@ Dans le planificateur, la carte **remplace la critique d'actions**. Sa valeur es
 | Agent | Standard : objectif / clé / objectif puis clé | Murs nombreux : objectif / clé / objectif puis clé | Lave |
 |---|---|---|---|
 | Oracle | 100 / 100 / 100 % | 100 / 100 / 100 % | 0 % |
-| **Carte + imagination** | **93,3 / 94,7 / 81,3 %** | **94,7 / 96 / 86,7 %** | **0 %** |
-| Carte seule | 92,7 / 94,7 / 78 % | 93,3 / 96 / 85,3 % | 0 % |
-| Complet, avec critique d'actions (avant) | 75,3 / 66 / 45,3 % | 66 / 67,3 / 41,3 % | 5 à 10 % |
+| **Carte v2 + imagination** | **99,3 / 100 / 88,7 %** | **100 / 100 / 94,7 %** | 0 à 2 % |
+| Carte v2 seule | 99,3 / 100 / 90 % | 99,3 / 100 / 95,3 % | 0 à 2 % |
+| Carte v1 (Bellman seul) + imagination | 93,3 / 94,7 / 81,3 % | 94,7 / 96 / 86,7 % | 0 % |
+| Complet, avec critique d'actions (avant la carte) | 75,3 / 66 / 45,3 % | 66 / 67,3 / 41,3 % | 5 à 10 % |
 | Aléatoire | 25,3 / 24 / 2,7 % | 33,3 / 40 / 10,7 % | 50 à 80 % |
 
-| Succès selon la distance (moyenne des 6 cas) | 1-3 pas | 4-6 pas | 7-9 pas | 10+ pas |
+| Succès selon la distance (standard / murs nombreux) | 1-3 pas | 4-6 pas | 7-9 pas | 10+ pas |
 |---|---|---|---|---|
-| Complet (avant) | 85 % | 54 % | 28 % | 5 % |
-| **Carte + imagination** | **100 %** | **93 %** | **68 %** | **24 %** |
+| Complet (avant la carte) | 92 / 79 % | 65 / 45 % | 22 / 34 % | 5 / 5 % |
+| Carte v1 | 100 / 100 % | 95 / 91 % | 74 / 63 % | 19 / 43 % |
+| **Carte v2** | **100 / 99 %** | **96 / 97 %** | **94 / 100 %** | **96 / 91 %** |
 
 | Action optimale choisie, cartes standard (1-3 / 4-6 / 7-9 / 10+ pas) | objectif | clé | porte |
 |---|---|---|---|
 | Critique d'actions | 86 / 76 / 45 / 57 % | 86 / 71 / 68 / 100 % | 81 / 82 / 74 / 68 % |
-| **Carte mentale** | **96 / 81 / 63 / 57 %** | **96 / 85 / 79 / 40 %** | **93 / 91 / 84 / 80 %** |
+| Carte v1 | 96 / 81 / 63 / 57 % | 96 / 85 / 79 / 40 % | 93 / 91 / 84 / 80 % |
+| **Carte v2** | **100 / 99 / 100 / 100 %** | **100 / 100 / 100 / 100 %** | 73 / 70 / 75 / 76 % |
 
-(Au-delà de 10 pas, il n'y a que 5 à 7 cas pour l'objectif et la clé : ces chiffres-là ne veulent rien dire.)
+(Au-delà de 10 pas, il n'y a que 5 à 7 cas pour l'objectif et la clé.) La porte baisse avec la version 2, et c'est attendu. Ces états sont tirés au hasard, souvent **sans la clé**. Sans la clé, la porte est un mur, et une carte fixe ne sait pas représenter « va d'abord chercher la clé ». La version 1, plus floue, « fuyait » à travers la porte fermée. Mesurée sur des états **clé en main** (le cas des tâches qui demandent la clé puis la porte), la version 2 choisit l'action optimale **100 %** du temps à toutes les distances (694 états), contre 90 / 82 / 66 % pour la version 1.
 
-**V1 de substitution** (tâche « objectif puis clé » jamais pratiquée, succès ÷ oracle, seuil 0,75) : **0,81** sur les cartes standard, **0,87** sur les cartes à murs nombreux. Avant : 0,45 et 0,41.
+**V1 de substitution** (tâche « objectif puis clé » jamais pratiquée, succès ÷ oracle, seuil 0,75) : **0,89** sur les cartes standard, **0,95** sur les cartes à murs nombreux. Avant la carte : 0,45 et 0,41.
 
 **Ce qu'on apprend :**
 
-1. **C'est le plus grand progrès du projet.** Sur toutes les tâches et les deux familles de cartes : +18 à +45 points, et la lave tombe à **0 %** (la carte sait où l'on meurt, sur toute la carte). Pour la première fois, **le test blanc est réussi**.
-2. **Elle généralise à des cartes d'un type jamais vu.** Sur les cartes à murs nombreux, qui n'ont servi à aucun réglage, elle fait aussi bien que sur les cartes standard (86,7 % sur la tâche composée).
-3. **La portée a progressé, mais reste la limite** : 68 % à 7-9 pas (contre 28 %), 24 % au-delà de 10 pas (contre 5 %).
-4. **L'imagination devient presque décorative pour décider.** La carte seule fait presque aussi bien que la carte avec l'imagination (1 à 3 points d'écart). C'est un résultat important, et gênant pour l'idée de départ : le modèle du monde JEPA, cœur de la feuille de route, ne pèse plus beaucoup dans les décisions. Il reste utile pour détecter les événements et pour l'apprentissage en vivant, mais c'est la carte qui planifie.
+1. **C'est le plus grand progrès du projet.** La portée, principal manque mesuré par le test blanc, est presque résolue : 90-96 % au-delà de 10 pas, contre 5 % avant la carte. La lave tombe à 0-2 %.
+2. **Elle généralise à des cartes d'un type jamais vu.** Sur les cartes à murs nombreux, qui n'ont servi à aucun réglage, elle fait aussi bien que sur les cartes standard.
+3. **Savoir ce qu'il y a sur chaque case comptait plus que la façon de propager.** Le calcul était bon dès la version 1. C'est l'expérience locale (« j'ai marché là, voilà ce qui s'est passé ») qui a rendu la carte juste.
+4. **L'imagination devient décorative pour décider.** La carte seule fait aussi bien que la carte avec l'imagination. C'est un résultat important, et gênant pour l'idée de départ : le modèle du monde JEPA, cœur de la feuille de route, ne pèse plus dans les décisions. Il reste utilisé pour détecter les événements et pour l'apprentissage en vivant, mais c'est la carte qui planifie.
 
 **Limites, à ne pas cacher :**
 
-- **La carte repose sur un a priori fort** : le monde est fait de cases, où l'on se déplace de proche en proche. Cet a priori est donné par construction. Elle ne marcherait pas telle quelle dans un monde qui n'est pas une grille. Ce qui est appris, c'est tout le contenu (quoi est où, ce qui bloque, ce qui tue, où mène chaque action).
+- **La carte repose sur un a priori fort** : le monde est fait de cases, où l'on se déplace de proche en proche. Cet a priori est donné par construction. Elle ne marcherait pas telle quelle dans un monde qui n'est pas une grille. Ce qui est appris, c'est tout le contenu : quoi est où, ce qui bloque, ce qui tue, où mène chaque action.
+- **Une carte fixe ne sait pas enchaîner à l'intérieur d'un sous-but** (« prendre la clé pour pouvoir passer la porte »). Ici, c'est la tâche qui découpe en sous-buts (clé, puis porte). Si on lui demandait la porte sans passer par la clé, elle échouerait.
 - **Le poids 30 a été choisi sur 60 cartes standard de contrôle**, les mêmes graines que ce diagnostic. Les cartes à murs nombreux, elles, n'ont servi à aucun réglage.
-- **Le test blanc remplace l'humain par l'oracle (100 %).** Le vrai test est plus dur : des portes, et des chemins jusqu'à 50 pas.
+- **Le test blanc remplace l'humain par l'oracle (100 %).**
 - **La carte n'apprend pas en vivant** (pas encore).
 
 ```bash
-python diagnostics/12_iag_mental_map/mental_map_check.py   # ~45 minutes
+python diagnostics/12_iag_mental_map/mental_map_check.py   # ~45 minutes (entraîne aussi la carte v1 si absente)
 python -m mini_iag.live                                    # la vie utilise la carte si elle existe (--sans-carte sinon)
+```
+
+### Étape 5 : préparation du test final (sans le lancer)
+
+**L'agent présenté au test** ([`final_agent.py`](mini_iag/final_agent.py)) : l'agent de l'étape 4a et la carte mentale v2, sans vie préalable, pour que n'importe qui obtienne le même agent avec les mêmes commandes. **Ses valeurs sont verrouillées** : `lock()` gèle le module de coût et enregistre son empreinte SHA-256, qui couvre aussi les poids du danger et du succès. Vérifié : l'empreinte reste intacte après un entraînement (`practice`), et une tentative de modification par descente de gradient ne change rien.
+
+**La référence sans connaissances** (`build_relearner`) : la même architecture, carte mentale comprise, avec des poids aléatoires et la même adaptation.
+
+**Le passage du test** ([`evaluation/run.py`](evaluation/run.py), `--test-final`) suit le déroulé de `PROTOCOLE.md` et appelle les règles figées de `battery.py` sans les modifier. Il refuse de se lancer si le protocole a été modifié, si l'isolement est rompu, si les résultats humains manquent, ou sans `--je-confirme`. Il écrit `evaluation/resultat_final.json`, et **refuse de se relancer si ce fichier existe** : le test ne se passe qu'une fois.
+
+#### Diagnostic 13 : la répétition à blanc
+
+**Dossier :** [`diagnostics/13_iag_dry_run/`](diagnostics/13_iag_dry_run/). Même procédure que le test final (agent verrouillé, zéro essai, 50 épisodes d'adaptation sur des cartes distinctes, référence sans connaissances, oubli, verrou), mêmes seuils et mêmes fonctions de `battery.py`, mais sur du **matériel public** : la tâche « objectif puis clé » (jamais pratiquée), les cartes à murs nombreux comme monde nouveau, les cartes standard comme référence. L'humain est remplacé par l'oracle (100 %).
+
+| Règle | Résultat (150 cartes par cas) |
+|---|---|
+| V1 agilité (zéro essai ÷ oracle ≥ 0,75) | ✅ 0,91 |
+| V2 transfert (adapté − référence, IC 95 %) | ✅ +88 points [83 ; 93] (90 % contre 2 %) |
+| V3 monde nouveau (≥ 0,8 × référence et ≥ 50 %) | ✅ 98,7 %, rapport 1,01 |
+| V4 valeurs verrouillées | ✅ empreinte intacte, modification impossible |
+| V5 pas d'oubli (≥ 0,9 × avant) | ✅ rapport 1,01 |
+
+La chaîne complète fonctionne, en environ 2 minutes 30. Sur du matériel public, l'agent passe les cinq règles. **Ce n'est pas le verdict** : les tâches du test sont différentes (une porte, un enclos), l'humain n'est pas un oracle, et il n'y a ici qu'un seul monde nouveau au lieu de deux.
+
+```bash
+python diagnostics/13_iag_dry_run/dry_run_check.py          # ~3 minutes
+python -m evaluation.human                                  # l'humain joue (avant le test)
+python -m evaluation.run --test-final --je-confirme         # LE test : une seule fois
 ```
 
 ---
@@ -924,8 +964,9 @@ python -m mini_iag.live                                    # la vie utilise la c
 - [x] **Test blanc** (diagnostic 10) : tâche composée jamais pratiquée, V1 de substitution 0,62 (raté). Critique qui apprend en vivant (+7 points). Le progrès « en vivant » vient surtout d'un alignement imagination/coût
 - [x] **Apprendre en vivant, mesuré honnêtement** (diagnostic 11) : témoin sans vie, règle nouvelle (la glace) et nouveau sens. Découverte partielle de la glace, mais interférence : pas encore d'apprentissage utile
 - [ ] **Apprendre en vivant sans interférence** : nouveau sens appris en premier, module d'imagination ajouté pour les nouveautés
-- [x] **Carte mentale** (diagnostic 12) : valeurs propagées sur toutes les cases (Value Iteration Network appris par Q-learning). Test blanc réussi (0,81 et 0,87), lave 0 %, portée 7-9 pas 28 → 68 %
-- [ ] **Au-delà de 10 pas** (24 %), et une carte qui apprend en vivant
+- [x] **Carte mentale** (diagnostic 12) : valeurs propagées sur toutes les cases (Value Iteration Network appris par Q-learning), puis auto-supervision des cases (v2). Test blanc réussi (0,89 et 0,95), au-delà de 10 pas 5 → 90-96 %
+- [x] **Étape 5, préparation** : valeurs verrouillées, référence sans connaissances, passage du test (une seule fois), répétition à blanc sur matériel public (diagnostic 13 : 5 règles sur 5)
+- [ ] Une carte mentale qui apprend en vivant
 - [ ] **Mini-IAG, étape 5** : coût verrouillé, passage du test final, verdict publié quel qu'il soit
 - [ ] **Module social** : remplacer la phrase fixe « l'utilisateur ne m'a pas parlé » (fausse juste après un message) par un contenu qui reflète le temps écoulé depuis le dernier message
 - [ ] **Exp. 2** : Adaptation (fatigue) pour une ignition transitoire, puis compétition entre deux stimuli. Seul l'un d'eux doit accéder au workspace (goulot attentionnel).
@@ -1014,10 +1055,13 @@ python -m mini_iag.live                                    # la vie utilise la c
 │   │   ├── living_check.py
 │   │   ├── living_results.json
 │   │   └── living_results.png
-│   └── 12_iag_mental_map/
-│       ├── mental_map_check.py
-│       ├── mental_map_results.json
-│       └── mental_map_results.png
+│   ├── 12_iag_mental_map/
+│   │   ├── mental_map_check.py
+│   │   ├── mental_map_results.json
+│   │   └── mental_map_results.png
+│   └── 13_iag_dry_run/
+│       ├── dry_run_check.py
+│       └── dry_run_results.json
 ├── evaluation/                  # Test final pré-enregistré (jamais importé par mini_iag/)
 │   ├── PROTOCOLE.md             # question, cas, règles du verdict, limites
 │   ├── registration.json        # empreintes SHA-256 + date d'enregistrement
@@ -1026,7 +1070,7 @@ python -m mini_iag.live                                    # la vie utilise la c
 │   ├── battery.py               # banc de test + règles V1 à V5
 │   ├── isolation.py             # contrôle d'isolement
 │   ├── human.py                 # l'humain passe le test
-│   ├── run.py                   # lanceur
+│   ├── run.py                   # lanceur : --references, --test-final (une seule fois)
 │   ├── register.py              # enregistrement du protocole
 │   └── agents/                  # références : aléatoire, oracle
 ├── experiments/                 # Expériences (une par dossier)
@@ -1049,6 +1093,7 @@ python -m mini_iag.live                                    # la vie utilise la c
 │   ├── data_keydoor.py          # collecte dans le monde v2
 │   ├── train_keydoor.py         # étape 4a : python -m mini_iag.train_keydoor
 │   ├── train_map.py             # carte mentale : python -m mini_iag.train_map
+│   ├── final_agent.py           # l'agent du test final (valeurs verrouillées) et sa référence
 │   ├── live.py                  # étape 4b : python -m mini_iag.live (la vie continue)
 │   ├── life/
 │   │   ├── life.py              # Life (boucle de vie, sauvegarde, reprise)

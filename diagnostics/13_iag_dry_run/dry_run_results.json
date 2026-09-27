@@ -1,0 +1,67 @@
+{
+ "zéro_essai": {
+  "P1": {
+   "succès": 91.33333333333333,
+   "lave": 2.666666666666667,
+   "efficacité": 0.9841236014593678,
+   "n": 150
+  },
+  "PW": {
+   "succès": 98.66666666666667,
+   "lave": 0.0,
+   "efficacité": 0.9621121933621932,
+   "n": 150
+  },
+  "PR": {
+   "succès": 98.0,
+   "lave": 0.0,
+   "efficacité": 0.982812331281719,
+   "n": 150
+  }
+ },
+ "adapté": {
+  "succès": 90.0,
+  "lave": 2.0,
+  "efficacité": 1.0,
+  "n": 150
+ },
+ "référence": {
+  "succès": 2.0,
+  "lave": 49.333333333333336,
+  "efficacité": 0.45108225108225114,
+  "n": 150
+ },
+ "PR_après": 98.66666666666667,
+ "règles": {
+  "V1": {
+   "rapport": 0.9133333333333333,
+   "réussi": true
+  },
+  "V2": {
+   "différence": 0.88,
+   "IC95": [
+    0.8266666666666667,
+    0.9266666666666667
+   ],
+   "réussi": true
+  },
+  "V3": {
+   "rapport": 1.0068027210884354,
+   "succès": 0.9866666666666667,
+   "réussi": true
+  },
+  "V4": {
+   "contrôles": {
+    "verrouillé": true,
+    "empreinte intacte": true,
+    "gelé": true,
+    "inchangé après tentative": true
+   },
+   "réussi": true
+  },
+  "V5": {
+   "rapport": 1.0068027210884354,
+   "réussi": true
+  }
+ }
+}

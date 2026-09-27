@@ -6,6 +6,10 @@ Même équation que la critique d'actions (offline_q_trainer.py), pour chaque
 Seule la forme du réseau change : la carte mentale propage les valeurs de case
 en case au lieu de les deviner en une passe.
 
+Option cell_weight > 0 : en plus de Bellman, chaque transition vécue renseigne
+directement la case où l'agent est arrivé (événement ? mort ?) et dit s'il est
+resté bloqué. C'est ce que l'agent CONSTATE en marchant, rien de plus.
+
 Option relative=True (essayée, NON retenue) : une erreur relative, pour mieux
 séparer les petites valeurs loin de la cible. L'apprentissage devient instable
 (la direction d'une action est mal apprise) et les choix tombent à 30-40 %
@@ -17,18 +21,19 @@ import torch
 from torch.nn import functional as F
 
 from ..data_keydoor import EVENT_ORDER
+from ..environment.keydoor_world import AGENT
 from ..modules.mental_map import TARGETS
 
 
 class MapTrainer:
     def __init__(self, mental_map, lr=1e-3, iters=15000, batch_size=256, ema=0.995, seed=0,
-                 relative=False):
+                 relative=False, cell_weight=0.0):
         self.map = mental_map
         self.target = copy.deepcopy(mental_map)
         for p in self.target.parameters():
             p.requires_grad = False
         self.iters, self.batch_size, self.ema = iters, batch_size, ema
-        self.relative = relative
+        self.relative, self.cell_weight = relative, cell_weight
         self.opt = torch.optim.Adam(mental_map.parameters(), lr=lr)
         self.gen = torch.Generator().manual_seed(seed)
         self.log = []
@@ -52,6 +57,8 @@ class MapTrainer:
                 loss = (((pred - y) / (y + 0.02)) ** 2).mean()
             else:
                 loss = F.mse_loss(pred, y)
+            if self.cell_weight > 0:
+                loss = loss + self.cell_weight * self.cell_loss(transitions, i, ev, act)
             self.opt.zero_grad()
             loss.backward()
             self.opt.step()
@@ -64,3 +71,24 @@ class MapTrainer:
                     print(f"  [carte mentale] {it:5d}/{self.iters}  perte {loss.item():.5f}", flush=True)
         self.map.eval()
         return self.log
+
+    def cell_loss(self, transitions, i, ev, act):
+        """Ce que l'agent a CONSTATÉ en marchant : la case où il est arrivé a-t-elle
+        déclenché un événement ? l'a-t-elle tué ? est-il resté sur place ?
+        Chaque transition vécue renseigne la case concernée (auto-supervision locale)."""
+        obs, nxt = transitions.obs[i].float(), transitions.next_obs[i].float()
+        r, b, d = self.map.maps(obs)
+        here, there = obs[:, AGENT], nxt[:, AGENT]
+        moved = (here != there).flatten(1).any(1).float()
+        e = ev[i]
+        at = lambda m: (m * there[:, None]).sum((-1, -2))                     # valeur à la case d'arrivée
+        reward = e[:, [EVENT_ORDER.index(t) for t in TARGETS]]
+        lava = e[:, EVENT_ORDER.index("lava")]
+        bce = F.binary_cross_entropy
+        w = moved[:, None]
+        loss_r = (bce(at(r).clamp(1e-5, 1 - 1e-5), reward, reduction="none") * w).sum() / w.sum().clamp_min(1) / 3
+        loss_d = (bce(at(d)[:, 0].clamp(1e-5, 1 - 1e-5), lava, reduction="none") * moved).sum() / moved.sum().clamp_min(1)
+        stuck = (self.map._shift(b, self.map.kernels()) * here[:, None, None]).sum((-1, -2))[:, 0]   # (B, A)
+        stuck = stuck[torch.arange(len(act[i])), act[i]].clamp(1e-5, 1 - 1e-5)
+        loss_b = bce(stuck, 1 - moved)
+        return loss_r + loss_d + loss_b

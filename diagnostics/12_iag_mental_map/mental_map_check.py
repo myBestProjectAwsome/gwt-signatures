@@ -13,8 +13,10 @@ que la critique (l'agent qui marchait au hasard).
 Agents :
   aléatoire, oracle (plus court chemin exact)
   complet (critique d'actions)   l'agent actuel : imagination + critique
-  carte + imagination            la carte remplace la critique (poids 30 :
-                                 la carte décide, l'imagination départage)
+  carte v1 (Bellman seul)        première version, apprise par Bellman seulement
+  carte + imagination            version 2 (Bellman + auto-supervision des cases),
+                                 remplace la critique (poids 30 : la carte décide,
+                                 l'imagination départage)
   carte seule                    poids 1000 : l'imagination ne compte presque plus
 Cartes (publiques, graines de contrôle) :
   standard                       les cartes de toujours (2 murs intérieurs)
@@ -51,7 +53,7 @@ from mini_iag.modules.action_critic import TARGETS  # noqa: E402
 from mini_iag.tasks import Task, optimal_steps  # noqa: E402
 from mini_iag.tasks.search import _successors  # noqa: E402
 from mini_iag.train_keydoor import STEP4, load_task_agent, train  # noqa: E402
-from mini_iag.train_map import MAP_PATH, train_map  # noqa: E402
+from mini_iag.train_map import MAP_PATH, MAP_V1_PATH, train_map  # noqa: E402
 
 OUT = Path(__file__).with_name("mental_map_results")
 WALLS = 7
@@ -121,7 +123,7 @@ def figure(R, path):
     plt.rcParams.update({"font.size": 10, "axes.edgecolor": GRID, "axes.labelcolor": MUTED,
                          "xtick.color": MUTED, "ytick.color": MUTED, "text.color": INK})
     names = [n for n in R["agents"] if n not in ("oracle",)]
-    col = dict(zip(names, ["#b4b3aa", "#eda100", "#2a78d6", "#1baf7a"]))
+    col = dict(zip(names, ["#b4b3aa", "#eda100", "#8fb8e8", "#2a78d6", "#1baf7a"]))
     wd = 0.8 / len(names)
     fig, ax = plt.subplots(1, 3, figsize=(17, 4.6))
     tasks = [t.name for t in DEV_TASKS]
@@ -142,12 +144,12 @@ def figure(R, path):
         ax[2].bar(x + (j - (len(names) - 1) / 2) * wd, v, wd, color=col[n], edgecolor="white", linewidth=2)
     ax[2].set_xticks(x, [b + " pas" for b in BUCKETS])
     ax[2].set(title="Succès selon la distance (moyenne des 6 cas)", ylabel="succès (%)", ylim=(0, 100))
-    ax[2].legend([plt.Rectangle((0, 0), 1, 1, color=col[n]) for n in names], names, frameon=False,
-                 fontsize=8, loc="upper right")
+    fig.legend([plt.Rectangle((0, 0), 1, 1, color=col[n]) for n in names], names, frameon=False,
+               fontsize=9, loc="lower center", ncol=len(names))
     for a in ax:
         a.spines[["top", "right"]].set_visible(False)
         a.grid(axis="y", color=GRID)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
     fig.savefig(path, dpi=120)
 
 
@@ -164,12 +166,16 @@ if __name__ == "__main__":
         train(verbose=False)
     if not MAP_PATH.exists():
         train_map()
+    if not MAP_V1_PATH.exists():
+        train_map(MAP_V1_PATH, cell_weight=0.0)
     cfg = Config.keydoor()
     maps = {"standard": lambda k, i: dev_map(cfg, k, i), "murs nombreux": lambda k, i: walls_map(cfg, k, i)}
     agents = {
         "aléatoire": lambda: RandomAgent(),
         "oracle": lambda: Oracle(),
         "complet (critique d'actions)": lambda: load_task_agent(),
+        "carte v1 (Bellman seul) + imagination": lambda: load_task_agent(mental_map=MAP_V1_PATH,
+                                                                          cfg_overrides={"map_weight": 30.0}),
         "carte + imagination": lambda: load_task_agent(mental_map=MAP_PATH, cfg_overrides={"map_weight": 30.0}),
         "carte seule": lambda: load_task_agent(mental_map=MAP_PATH, cfg_overrides={"map_weight": 1000.0}),
     }
@@ -179,12 +185,16 @@ if __name__ == "__main__":
         R["agents"][name] = {fam: run(make(), m) for fam, m in maps.items()}
 
     ref = load_task_agent(mental_map=MAP_PATH)
+    ref_v1 = load_task_agent(mental_map=MAP_V1_PATH)
     wm = ref.arch.world_model
     q_map = lambda obs, t: ref.arch.mental_map.q(torch.as_tensor(obs)[None], t)[0]
+    q_v1 = lambda obs, t: ref_v1.arch.mental_map.q(torch.as_tensor(obs)[None], t)[0]
     q_crit = lambda obs, t: ref.arch.critic.q(wm.encode(torch.as_tensor(obs).float()[None]), t)[0]
     for fam, walls in (("standard", 2), ("murs nombreux", WALLS)):
         sts = states(cfg, walls, 1000, seed=0)
-        R["choix"][fam] = {"critique d'actions": choice_accuracy(q_crit, sts), "carte mentale": choice_accuracy(q_map, sts)}
+        R["choix"][fam] = {"critique d'actions": choice_accuracy(q_crit, sts),
+                           "carte v1 (Bellman seul)": choice_accuracy(q_v1, sts),
+                           "carte mentale": choice_accuracy(q_map, sts)}
 
     for fam in maps:
         print(f"\nCartes {fam} ({N} par tâche), succès (lave)")
