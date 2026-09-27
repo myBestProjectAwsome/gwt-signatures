@@ -121,6 +121,33 @@ class WorldModel(nn.Module):
         n = mask.sum().clamp_min(1)
         return ((mse + event_weight * bce) * mask).sum() / n
 
+    # ------------------------------------------------------------ un nouveau sens
+    @torch.no_grad()
+    def grow_senses(self, n=1):
+        """Ajoute n canaux d'entrée à la perception (ex. la glace), sans rien changer
+        à ce qu'elle percevait déjà : les poids des nouveaux canaux partent de zéro,
+        et une observation sans ces canaux donne EXACTEMENT le même vecteur qu'avant.
+        Seuls ces nouveaux poids pourront apprendre (ContinualLearner)."""
+        for enc in (self.encoder, self.target_encoder):
+            old = enc.net[0]
+            new = nn.Conv2d(old.in_channels + n, old.out_channels, old.kernel_size,
+                            padding=old.padding)
+            new.weight.zero_()
+            new.weight[:, :old.in_channels] = old.weight
+            new.bias.copy_(old.bias)
+            new.weight.requires_grad = enc is self.encoder
+            new.bias.requires_grad = False
+            enc.net[0] = new
+        start = self.new_senses.start if getattr(self, "new_senses", None) else old.in_channels
+        self.new_senses = slice(start, old.in_channels + n)
+
+    @torch.no_grad()
+    def update_new_senses(self):
+        """L'encodeur cible suit lentement les poids des nouveaux sens (comme au JEPA)."""
+        s = self.new_senses
+        pt, po = self.target_encoder.net[0].weight, self.encoder.net[0].weight
+        pt[:, s].mul_(self.ema_decay).add_(po[:, s], alpha=1 - self.ema_decay)
+
     @torch.no_grad()
     def update_target(self):
         """L'encodeur cible suit lentement l'encodeur en ligne."""

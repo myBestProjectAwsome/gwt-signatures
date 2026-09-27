@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 
@@ -19,4 +20,7 @@ class StateEncoder(nn.Module):
         )
 
     def forward(self, obs):
+        missing = self.net[0].in_channels - obs.shape[-3]
+        if missing > 0:              # un sens ajouté plus tard (ex. la glace) : muet ici
+            obs = torch.cat([obs, obs.new_zeros(*obs.shape[:-3], missing, *obs.shape[-2:])], -3)
         return self.net(obs)

@@ -10,6 +10,10 @@ Tâches de la vie : les tâches publiques uniquement (jamais celles du test).
 
 La critique d'actions apprend aussi en vivant (learn_critic, diagnostic 10).
 
+Glace (n_ice > 0, désactivée par défaut) : une règle absente de toute
+l'expérience d'origine, pour vérifier que l'agent peut la découvrir en
+vivant (diagnostic 11). La perception gagne un sens (grow_senses).
+
 Exploration libre : une part des épisodes (explore_fraction) n'a AUCUNE tâche.
 L'agent se promène, guidé seulement par la curiosité (la mémoire le pousse vers
 les endroits nouveaux) et la peur de la lave. Il ramasse des clés, se promène
@@ -50,18 +54,20 @@ def anchor_segments(cfg, n_maps=2000):
 class Life:
     def __init__(self, agent, learn=True, learn_every=5, old_fraction=0.5, max_steps=40,
                  path=LIFE_PATH, seed=0, rare_bonus="défaut", explore_fraction=0.0,
-                 explore_steps=30, tasks=LIFE_TASKS, learn_critic=True):
+                 explore_steps=30, tasks=LIFE_TASKS, learn_critic=True, n_ice=0):
         self.agent, self.cfg = agent, agent.cfg
         self.learn, self.learn_every, self.max_steps = learn, learn_every, max_steps
         self.explore_fraction, self.explore_steps = explore_fraction, explore_steps
         self.path = Path(path)
+        if n_ice and getattr(agent.arch.world_model, "new_senses", None) is None:
+            agent.arch.world_model.grow_senses(1)        # la glace : un nouveau sens
         extra = {} if rare_bonus == "défaut" else {"rare_bonus": rare_bonus}
         self.buffer = ExperienceBuffer(anchor_segments(self.cfg), horizon=self.cfg.planning_horizon,
                                        seed=seed, **extra)
         self.learner = ContinualLearner(agent.arch, self.buffer, old_fraction=old_fraction,
                                         learn_critic=learn_critic)
         self.tasks = tuple(tasks)
-        self.world = KeyDoorWorld(self.cfg)
+        self.world = KeyDoorWorld(self.cfg, n_ice=n_ice)
         self.rng = random.Random(seed)
         self.episode, self.history, self.forced_task = 0, [], None
 
@@ -111,6 +117,9 @@ class Life:
                     "optimizer": self.learner.opt.state_dict(),
                     "buffer": self.buffer.state(), "episode": self.episode,
                     "history": self.history, "n_updates": self.learner.n_updates,
+                    "senses": ({"encoder": self.agent.arch.world_model.encoder.net[0].state_dict(),
+                                "target": self.agent.arch.world_model.target_encoder.net[0].state_dict()}
+                               if getattr(self.agent.arch.world_model, "new_senses", None) else None),
                     "critic": (self.learner.critic_learner.state()
                                if self.learner.critic_learner else None)}, self.path)
 
@@ -118,6 +127,12 @@ class Life:
         if not self.path.exists():
             return False
         state = torch.load(self.path, weights_only=False)
+        if state.get("senses"):
+            wm = self.agent.arch.world_model
+            if getattr(wm, "new_senses", None) is None:
+                wm.grow_senses(1)
+            wm.encoder.net[0].load_state_dict(state["senses"]["encoder"])
+            wm.target_encoder.net[0].load_state_dict(state["senses"]["target"])
         self.agent.arch.world_model.predictor.load_state_dict(state["predictor"])
         self.learner.opt.load_state_dict(state["optimizer"])
         self.buffer.load_state(state["buffer"])

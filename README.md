@@ -795,6 +795,47 @@ La conclusion « vivre fait progresser » du diagnostic 7 est donc **corrigée**
 python diagnostics/10_iag_rehearsal/rehearsal_check.py   # ~40 minutes
 ```
 
+### Apprend-elle vraiment en vivant ? Un témoin, et une règle nouvelle
+
+Le diagnostic 10 a montré qu'on mesurait mal l'apprentissage en vivant. Le diagnostic 11 le mesure avec deux corrections :
+
+1. **Un témoin.** La même quantité d'apprentissage (300 séances), **sans rien vivre**, sur les seuls souvenirs anciens. L'apprentissage en vivant n'est prouvé que si la vraie vie fait mieux que ce témoin.
+2. **Quelque chose de nouveau à apprendre.** Dans le monde d'origine, l'agent connaissait déjà toute la physique : il n'y avait rien à découvrir. On ajoute une règle absente de toute son expérience, **la glace** : une case qui fait glisser jusqu'au prochain obstacle ([`keydoor_world.py`](mini_iag/environment/keydoor_world.py), option `n_ice`, désactivée par défaut). La glace n'existe ni dans l'expérience d'origine, ni dans le test.
+
+Pour voir la glace, la perception gagne **un nouveau sens** : un 8e canal d'entrée ([`world_model.py`](mini_iag/modules/world_model.py), `grow_senses`). Ses poids partent de zéro, donc tout ce qu'elle percevait avant donne exactement le même vecteur (vérifié). En vivant, seuls ces nouveaux poids apprennent. Le reste de la perception et le module de coût restent figés.
+
+#### Diagnostic 11
+
+**Dossier :** [`diagnostics/11_iag_learning_by_living/`](diagnostics/11_iag_learning_by_living/). Même agent de départ (avec le nouveau sens, critique qui apprend), 1 500 épisodes par vie, 150 cartes de contrôle par tâche.
+
+![Apprendre en vivant](diagnostics/11_iag_learning_by_living/living_results.png)
+
+| | Avant | Témoin : 300 séances sans vivre | Vie normale | Vie avec glace |
+|---|---|---|---|---|
+| **Monde normal** : objectif | 75,3 % | 82 % | **87,3 %** | 73,3 % |
+| clé | 66 % | 76 % | **80 %** | 74 % |
+| objectif puis clé | 45,3 % | 50 % | **57,3 %** | 49,3 % |
+| **Monde avec glace** : objectif | 70,7 % (lave 13 %) | 79,3 % (lave 11 %) | **80 %** (lave 13 %) | 63,3 % (lave 25 %) |
+| clé | 68,7 % (lave 16 %) | 74 % (lave 13 %) | **74,7 %** (lave 16 %) | 62,7 % (lave 25 %) |
+| **Glissade imaginée à la bonne case** | 5,8 % | 6,9 % | 6,4 % | **21,4 %** |
+| Autre pas imaginé à la bonne case | 52,3 % | 56,4 % | 55,3 % | 44,2 % |
+
+La case imaginée est lue par une sonde linéaire, apprise sur les états réels (qu'elle lit à 80-83 %) et appliquée aux états imaginés.
+
+**Ce qu'on apprend :**
+
+1. **Dans le monde normal, la vie fait un peu mieux que le témoin** : +5, +4 et +7 points. C'est le premier signe d'un apprentissage qui vient vraiment de ce qu'elle vit (avec la critique qui apprend). L'écart reste proche du bruit mesuré au diagnostic 10 (3 à 4 points) : c'est un indice, pas une preuve.
+2. **Elle commence à découvrir la glace, mais mal.** Sa vie dans le monde glacé lui apprend que la glace fait glisser : l'imagination place l'agent à la bonne case après une glissade 3,7 fois plus souvent (5,8 % → 21,4 %). Aucune autre condition ne fait bouger ce chiffre : c'est bien son expérience qui le lui apprend.
+3. **Mais ce savoir est encore inutilisable, et il abîme le reste.** Dans le monde glacé, elle réussit **moins bien** qu'avant sa vie (63 % contre 71 %) et meurt deux fois plus (25 % de lave). Son imagination des pas ordinaires se dégrade (52 % → 44 %), et elle perd ses progrès dans le monde normal. C'est de l'**interférence** : tant que le nouveau sens n'a pas appris à voir la glace, le prédicteur voit des glissades « inexpliquées » et apprend un compromis flou, qui fausse aussi les pas ordinaires.
+
+**Verdict : elle ne sait pas encore vraiment apprendre en vivant.** Elle peut commencer à découvrir une règle nouvelle, ce qui est nouveau, mais pas assez vite ni assez proprement pour que ça l'aide.
+
+**Pistes, non testées :** apprendre le nouveau sens avant (ou plus vite que) le prédicteur ; ne corriger l'imagination que sur les situations que le nouveau sens explique ; donner à l'imagination une capacité propre aux nouveautés (un module ajouté plutôt que modifié) ; laisser le module de coût apprendre à lire les états glacés, sans toucher à ses valeurs.
+
+```bash
+python diagnostics/11_iag_learning_by_living/living_check.py   # ~45 minutes
+```
+
 ---
 
 ## Feuille de route
@@ -811,6 +852,8 @@ python diagnostics/10_iag_rehearsal/rehearsal_check.py   # ~40 minutes
 - [x] **Planification longue** : critique d'actions apprise sur l'expérience réelle, planificateur hybride
 - [x] **Contre l'oubli de la porte** : révision prioritaire des souvenirs rares, exploration libre (diagnostic 9 : ni l'une ni l'autre ne suffit, limite connue)
 - [x] **Test blanc** (diagnostic 10) : tâche composée jamais pratiquée, V1 de substitution 0,62 (raté). Critique qui apprend en vivant (+7 points). Le progrès « en vivant » vient surtout d'un alignement imagination/coût
+- [x] **Apprendre en vivant, mesuré honnêtement** (diagnostic 11) : témoin sans vie, règle nouvelle (la glace) et nouveau sens. Découverte partielle de la glace, mais interférence : pas encore d'apprentissage utile
+- [ ] **Apprendre en vivant sans interférence** : nouveau sens appris en premier, module d'imagination ajouté pour les nouveautés
 - [ ] **Portée de la planification** : points de repère et planification hiérarchique (le principal manque mesuré par le test blanc)
 - [ ] **Mini-IAG, étape 5** : coût verrouillé, passage du test final, verdict publié quel qu'il soit
 - [ ] **Module social** : remplacer la phrase fixe « l'utilisateur ne m'a pas parlé » (fausse juste après un message) par un contenu qui reflète le temps écoulé depuis le dernier message
@@ -892,10 +935,14 @@ python diagnostics/10_iag_rehearsal/rehearsal_check.py   # ~40 minutes
 │   │   ├── rare_memories_check.py
 │   │   ├── rare_memories_results.json
 │   │   └── rare_memories_results.png
-│   └── 10_iag_rehearsal/
-│       ├── rehearsal_check.py
-│       ├── rehearsal_results.json
-│       └── rehearsal_results.png
+│   ├── 10_iag_rehearsal/
+│   │   ├── rehearsal_check.py
+│   │   ├── rehearsal_results.json
+│   │   └── rehearsal_results.png
+│   └── 11_iag_learning_by_living/
+│       ├── living_check.py
+│       ├── living_results.json
+│       └── living_results.png
 ├── evaluation/                  # Test final pré-enregistré (jamais importé par mini_iag/)
 │   ├── PROTOCOLE.md             # question, cas, règles du verdict, limites
 │   ├── registration.json        # empreintes SHA-256 + date d'enregistrement

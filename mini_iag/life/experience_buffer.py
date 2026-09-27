@@ -27,6 +27,16 @@ from ..data_keydoor import EVENT_ORDER
 RARE_BONUS = {"door": 10.0, "key": 3.0, "goal": 1.0}     # poids = 1 + somme des bonus présents
 
 
+def _pad_channels(part, channels):
+    """Souvenirs d'avant un nouveau sens (ex. la glace) : ce canal y était muet (zéros)."""
+    obs, acts, vis, evs, alv = part
+    pad = channels - obs.shape[1]
+    if pad:
+        obs = torch.cat([obs, obs.new_zeros(obs.shape[0], pad, *obs.shape[2:])], 1)
+        vis = torch.cat([vis, vis.new_zeros(*vis.shape[:2], pad, *vis.shape[3:])], 2)
+    return obs, acts, vis, evs, alv
+
+
 class ExperienceBuffer:
     def __init__(self, anchor_segments, horizon=5, capacity_steps=60_000, seed=0,
                  rare_bonus=RARE_BONUS):
@@ -97,6 +107,8 @@ class ExperienceBuffer:
             parts.append(self._old(n_old))
         if size - n_old:
             parts.append(self._recent(size - n_old))
+        if len(parts) == 2 and parts[0][0].shape[1] != parts[1][0].shape[1]:
+            parts = [_pad_channels(p, max(parts[0][0].shape[1], parts[1][0].shape[1])) for p in parts]
         return tuple(torch.cat([p[j] for p in parts]) for j in range(5))
 
     def state(self):

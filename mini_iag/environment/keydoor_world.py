@@ -15,6 +15,15 @@ Observation : tableau (7, n, n) de 0/1
     0 mur, 1 lave, 2 objectif, 3 agent, 4 clé, 5 porte, 6 "clé en main"
     (le canal 6 est rempli de 1 quand l'agent porte la clé).
 
+Nouveauté optionnelle (n_ice > 0, désactivée par défaut) : la GLACE.
+  - une case de glace fait glisser : l'agent continue dans la même direction
+    tant qu'il est sur la glace et que la case suivante est franchissable
+    (il ramasse, ouvre, ou meurt dans la lave au passage, comme en marchant) ;
+  - l'observation gagne alors un 8e canal (7 : glace).
+La glace n'existe NI dans l'expérience d'origine NI dans le test : elle sert
+uniquement à vérifier que l'agent peut découvrir en vivant une règle nouvelle
+(diagnostic 11). Sans glace, le monde est strictement identique à avant.
+
 Ce qui est SECRET (evaluation/) : les tâches demandées le jour du test et
 certaines familles de cartes. Ce fichier ne contient que les cartes
 d'entraînement "standard".
@@ -23,15 +32,15 @@ import numpy as np
 
 from .gridworld import MOVES
 
-WALL, LAVA, GOAL, AGENT, KEY, DOOR, CARRY = range(7)
+WALL, LAVA, GOAL, AGENT, KEY, DOOR, CARRY, ICE = range(8)
 N_CHANNELS = 7
 EVENTS = ("goal", "key", "door", "lava")
 
 
 class KeyDoorWorld:
-    def __init__(self, cfg, seed=0, n_keys=1, n_doors=1):
+    def __init__(self, cfg, seed=0, n_keys=1, n_doors=1, n_ice=0):
         self.cfg, self.n = cfg, cfg.grid_size
-        self.n_keys, self.n_doors = n_keys, n_doors
+        self.n_keys, self.n_doors, self.n_ice = n_keys, n_doors, n_ice
         self.rng = np.random.default_rng(seed)
         self.reset()
 
@@ -50,18 +59,22 @@ class KeyDoorWorld:
         self.grid = np.zeros((6, n, n), dtype=np.float32)    # mur, lave, objectif, -, clé, porte
         self.grid[WALL, 0, :] = self.grid[WALL, -1, :] = 1
         self.grid[WALL, :, 0] = self.grid[WALL, :, -1] = 1
+        self.ice = np.zeros((n, n), dtype=np.float32)          # nouveauté optionnelle
 
     def free_cells(self):
         n = self.n
         return [(r, c) for r in range(1, n - 1) for c in range(1, n - 1)
-                if not self.grid[[WALL, LAVA, GOAL, KEY, DOOR], r, c].any()]
+                if not self.grid[[WALL, LAVA, GOAL, KEY, DOOR], r, c].any()
+                and not self.ice[r, c]]
 
     def observe(self):
-        obs = np.zeros((N_CHANNELS, self.n, self.n), dtype=np.float32)
+        obs = np.zeros((N_CHANNELS + (1 if self.n_ice else 0), self.n, self.n), dtype=np.float32)
         obs[[WALL, LAVA, GOAL, KEY, DOOR]] = self.grid[[WALL, LAVA, GOAL, KEY, DOOR]]
         obs[AGENT][self.agent] = 1
         if self.has_key:
             obs[CARRY] = 1
+        if self.n_ice:
+            obs[ICE] = self.ice
         return obs
 
     # ------------------------------------------------------------ physique
@@ -77,8 +90,16 @@ class KeyDoorWorld:
         if self.dead:
             raise RuntimeError("agent mort : appeler reset()")
         dr, dc = MOVES[action]
-        cell = (self.agent[0] + dr, self.agent[1] + dc)
         events = []
+        self._move((dr, dc), events)
+        if self.n_ice:                                   # glisser sur la glace
+            while self.ice[self.agent] and not self.dead and self._move((dr, dc), events):
+                pass
+        return self.observe(), events, self.dead
+
+    def _move(self, move, events):
+        """Un déplacement d'une case (s'il est possible). Renvoie True si l'agent a bougé."""
+        cell = (self.agent[0] + move[0], self.agent[1] + move[1])
         if self.passable(cell, self.has_key):
             self.agent = cell
             if self.grid[DOOR][cell]:
@@ -93,7 +114,8 @@ class KeyDoorWorld:
             if self.grid[LAVA][cell]:
                 events.append("lava")
                 self.dead = True
-        return self.observe(), events, self.dead
+            return True
+        return False
 
     # ------------------------------------------------------------ état (pour la recherche)
     def state(self):
@@ -102,7 +124,7 @@ class KeyDoorWorld:
         return self.agent, self.has_key, keys, doors
 
     def render(self):
-        """# mur  ~ lave  * objectif  k clé  D porte  A agent (a = agent avec la clé)."""
+        """# mur  ~ lave  * objectif  k clé  D porte  = glace  A agent (a = avec la clé)."""
         rows = []
         for r in range(self.n):
             row = ""
@@ -119,6 +141,8 @@ class KeyDoorWorld:
                     row += "k"
                 elif self.grid[GOAL, r, c]:
                     row += "*"
+                elif self.ice[r, c]:
+                    row += "="
                 else:
                     row += "."
             rows.append(row)
@@ -139,5 +163,9 @@ def standard_layout(world, rng):
     place(world, rng, GOAL, 1)
     place(world, rng, KEY, world.n_keys)
     place(world, rng, DOOR, world.n_doors)
+    if world.n_ice:                                      # nouveauté optionnelle (glace)
+        cells = world.free_cells()
+        for i in rng.permutation(len(cells))[:world.n_ice]:
+            world.ice[cells[i]] = 1
     cells = world.free_cells()
     world.agent = cells[rng.integers(len(cells))]

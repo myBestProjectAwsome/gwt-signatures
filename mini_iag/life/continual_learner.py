@@ -29,6 +29,16 @@ class ContinualLearner:
         self.params = list(self.wm.predictor.parameters())
         for p in self.params:
             p.requires_grad = True
+        self.senses = getattr(self.wm, "new_senses", None)
+        if self.senses is not None:
+            # un sens ajouté en vivant (ex. la glace) : SEULS ses poids apprennent,
+            # le reste de la perception reste figé (le module de coût la lit toujours pareil)
+            w = self.wm.encoder.net[0].weight
+            w.requires_grad = True
+            mask = torch.zeros_like(w)
+            mask[:, self.senses] = 1
+            w.register_hook(lambda g: g * mask)
+            self.params.append(w)
         self.opt = torch.optim.Adam(self.params, lr=lr)
         self.n_updates = 0
         self.critic_learner = None
@@ -40,8 +50,12 @@ class ContinualLearner:
     def loss(self, obs, actions, visited, events, alive):
         B, H = actions.shape
         with torch.no_grad():
-            z0 = self.wm.encode(obs)
             target = self.wm.target_encoder(visited.flatten(0, 1)).view(B, H, -1)
+        if self.senses is not None:
+            z0 = self.wm.encode(obs)                   # le gradient atteint les nouveaux sens
+        else:
+            with torch.no_grad():
+                z0 = self.wm.encode(obs)
         traj = self.wm.rollout(z0, actions)
         prev = torch.cat([z0.unsqueeze(1), traj[:, :-1]], dim=1)
         m = alive.float()
@@ -64,6 +78,8 @@ class ContinualLearner:
             self.opt.zero_grad()
             loss.backward()
             self.opt.step()
+            if self.senses is not None:
+                self.wm.update_new_senses()
             total += loss.item()
         self.wm.predictor.eval()
         for p, rg in zip(self.cost.parameters(), cost_frozen):
