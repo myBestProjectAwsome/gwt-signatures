@@ -1,0 +1,9 @@
+{
+ "mental_map_v3.pt": "c4b57a96316932b5de2ba3c133bb5dc383611bc95e2976a55966c888ae7a606b",
+ "effect_model.pt": "e60fded9f17794f20d601726d12b78b8c884350761d4259726315227b23adf84",
+ "commandes": [
+  "python -m mini_iag.train_map --version 3",
+  "python -m mini_iag.train_effects"
+ ],
+ "note": "Poids de DÉVELOPPEMENT (lots 2-3), pas une version figée pour un verdict."
+}

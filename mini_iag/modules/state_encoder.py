@@ -23,4 +23,6 @@ class StateEncoder(nn.Module):
         missing = self.net[0].in_channels - obs.shape[-3]
         if missing > 0:              # un sens ajouté plus tard (ex. la glace) : muet ici
             obs = torch.cat([obs, obs.new_zeros(*obs.shape[:-3], missing, *obs.shape[-2:])], -3)
+        elif missing < 0:            # un canal qu'elle ne sait pas lire (ex. la glace sans ce sens) : ignoré
+            obs = obs[..., :self.net[0].in_channels, :, :]
         return self.net(obs)

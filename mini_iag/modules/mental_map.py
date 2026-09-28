@@ -40,9 +40,14 @@ TARGETS = ("goal", "key", "door")
 class MentalMap(nn.Module):
     uses_obs = True
 
-    def __init__(self, cfg, hidden=32, iterations=30, discount=0.9):
+    def __init__(self, cfg, hidden=32, iterations=30, discount=0.9, self_blind=False):
         super().__init__()
         self.iterations, self.discount = iterations, discount
+        # self_blind (version 3) : les propriétés d'une case (récompense, blocage, danger)
+        # sont calculées SANS le canal de l'agent. Ce qu'est une case ne dépend pas de
+        # l'endroit où l'on se trouve (a priori déclaré). Sans cela, une porte pouvait
+        # paraître ouverte ou fermée selon la position de l'agent (lot 3).
+        self.self_blind = self_blind
         self.features = nn.Sequential(nn.Conv2d(N_CHANNELS, hidden, 3, padding=1), nn.ReLU(),
                                       nn.Conv2d(hidden, hidden, 1), nn.ReLU())
         self.reward = nn.Conv2d(hidden, len(TARGETS), 1)
@@ -58,25 +63,34 @@ class MentalMap(nn.Module):
         B, T, H, W = U.shape
         return F.conv2d(U.reshape(B * T, 1, H, W), K, padding=1).view(B, T, -1, H, W)
 
-    def maps(self, obs):
-        """Cartes apprises : récompense (B, 3, H, W), blocage et danger (B, 1, H, W)."""
-        h = self.features(obs[:, :N_CHANNELS].float())
-        return torch.sigmoid(self.reward(h)), torch.sigmoid(self.blocked(h)), torch.sigmoid(self.deadly(h))
+    def maps(self, obs, blocked=None):
+        """Cartes apprises : récompense (B, 3, H, W), blocage et danger (B, 1, H, W).
+        blocked (H, W), facultatif : cases CONSTATÉES bloquantes pendant l'épisode (1),
+        qui corrigent la carte apprise (ce qu'on a vu l'emporte sur ce qu'on croyait)."""
+        x = obs[:, :N_CHANNELS].float()
+        if self.self_blind:
+            x = x.clone()
+            x[:, AGENT] = 0
+        h = self.features(x)
+        b = torch.sigmoid(self.blocked(h))
+        if blocked is not None:
+            b = torch.maximum(b, blocked.to(b)[None, None])
+        return torch.sigmoid(self.reward(h)), b, torch.sigmoid(self.deadly(h))
 
-    def values(self, obs):
+    def values(self, obs, blocked=None):
         """Valeur d'ARRIVER sur chaque case, pour chaque événement visé : (B, 3, H, W)."""
-        r, b, d = self.maps(obs)
+        r, b, d = self.maps(obs, blocked)
         K, free = self.kernels(), (1 - b) * (1 - d)
         U = free * r
         for _ in range(self.iterations):
             U = free * (r + (1 - r) * self.discount * self._shift(U, K).max(2).values)
         return U
 
-    def forward(self, obs):
+    def forward(self, obs, blocked=None):
         """(B, C, H, W) -> (B, 3, 4) : valeur de chaque action, pour chaque événement visé."""
         obs = obs.float()
-        U = self.values(obs)
-        _, b, _ = self.maps(obs)
+        U = self.values(obs, blocked)
+        _, b, _ = self.maps(obs, blocked)
         K = self.kernels()
         here = obs[:, AGENT][:, None, None]                                   # (B, 1, 1, H, W)
         arrive = (self._shift(U, K) * here).sum((-1, -2))                      # (B, 3, A)
@@ -85,5 +99,11 @@ class MentalMap(nn.Module):
         # action bloquée : on reste sur place, on a perdu un pas
         return arrive + stuck * self.discount * best
 
-    def q(self, obs, target):
-        return self(obs)[:, TARGETS.index(target)]
+    def q(self, obs, target, blocked=None):
+        return self(obs, blocked)[:, TARGETS.index(target)]
+
+    def attempted_cell(self, obs, action):
+        """Case que l'action cherchait à atteindre, selon les noyaux APPRIS."""
+        here = divmod(int(obs[AGENT].flatten().argmax()), obs.shape[-1])
+        k = int(self.kernels()[action, 0].flatten().argmax())
+        return here[0] + k // 3 - 1, here[1] + k % 3 - 1

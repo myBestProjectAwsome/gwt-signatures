@@ -42,7 +42,7 @@ class TaskAgent:
     def reset(self, task):
         """task=None : exploration libre (aucun événement visé)."""
         self.tracker = TaskTracker(task) if task is not None else None
-        self.prev, self.last = None, None
+        self.prev, self.last, self._fresh = None, None, False
         self.useless = {}
         self.core.reset()
         self.arch.cost.configure(self.tracker.next_event if self.tracker else None)
@@ -60,8 +60,23 @@ class TaskAgent:
             if (i + 1) % learn_every == 0:
                 self.learner.update()
 
+    def observe(self, obs):
+        """Constater le résultat du dernier pas SANS choisir d'action (bac à sable :
+        l'affichage de la progression suit immédiatement). Le prochain act() ne
+        refait pas ce constat."""
+        self._perceive(obs)
+        self.prev, self._fresh = obs, True
+
     @torch.no_grad()
     def act(self, obs):
+        if not getattr(self, "_fresh", False):
+            self._perceive(obs)
+        self._fresh = False
+        self.last = self.core.act(obs, tuple(self.useless.get(np.asarray(obs).tobytes(), ())))
+        self.prev = obs
+        return self.last.action
+
+    def _perceive(self, obs):
         if self.prev is not None:
             if self.use_surprise and np.array_equal(self.prev, obs):
                 self.useless.setdefault(obs.tobytes(), set()).add(self.last.action)
@@ -71,6 +86,3 @@ class TaskAgent:
                 if self.tracker.progress != before and not self.tracker.done:
                     self.arch.cost.configure(self.tracker.next_event)
                     self.core.reset()
-        self.last = self.core.act(obs, tuple(self.useless.get(np.asarray(obs).tobytes(), ())))
-        self.prev = obs
-        return self.last.action

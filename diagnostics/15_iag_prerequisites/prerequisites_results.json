@@ -1,0 +1,242 @@
+{
+ "verdict (carte v2 + imagination)": {
+  "accessible": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 16.0,
+   "efficacité": 0.9966666666666667,
+   "n": 150
+  },
+  "incontournable": {
+   "succès": 60.0,
+   "lave": 0.0,
+   "clé ramassée": 63.33333333333333,
+   "efficacité": 0.8046401272541623,
+   "n": 150
+  },
+  "ouverte": {
+   "succès": 95.33333333333334,
+   "lave": 0.0,
+   "clé ramassée": 25.333333333333336,
+   "efficacité": 1.0,
+   "n": 150
+  },
+  "detour": {
+   "succès": 90.66666666666666,
+   "lave": 0.0,
+   "clé ramassée": 0.0,
+   "efficacité": 0.9856189081967628,
+   "n": 150
+  }
+ },
+ "carte seule": {
+  "accessible": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 15.333333333333332,
+   "efficacité": 1.0,
+   "n": 150
+  },
+  "incontournable": {
+   "succès": 57.99999999999999,
+   "lave": 0.0,
+   "clé ramassée": 59.333333333333336,
+   "efficacité": 0.7995392398462833,
+   "n": 150
+  },
+  "ouverte": {
+   "succès": 95.33333333333334,
+   "lave": 0.0,
+   "clé ramassée": 24.666666666666668,
+   "efficacité": 0.9961856325492688,
+   "n": 150
+  },
+  "detour": {
+   "succès": 89.33333333333333,
+   "lave": 0.0,
+   "clé ramassée": 0.0,
+   "efficacité": 1.0,
+   "n": 150
+  }
+ },
+ "sans carte (critique d'actions)": {
+  "accessible": {
+   "succès": 87.33333333333333,
+   "lave": 7.333333333333333,
+   "clé ramassée": 17.333333333333336,
+   "efficacité": 0.8691357122855716,
+   "n": 150
+  },
+  "incontournable": {
+   "succès": 43.333333333333336,
+   "lave": 5.333333333333334,
+   "clé ramassée": 78.66666666666666,
+   "efficacité": 0.5737979558591194,
+   "n": 150
+  },
+  "ouverte": {
+   "succès": 66.0,
+   "lave": 10.666666666666668,
+   "clé ramassée": 35.333333333333336,
+   "efficacité": 0.7767790963171737,
+   "n": 150
+  },
+  "detour": {
+   "succès": 56.00000000000001,
+   "lave": 2.0,
+   "clé ramassée": 25.333333333333336,
+   "efficacité": 0.48642323353981076,
+   "n": 150
+  }
+ },
+ "aléatoire": {
+  "accessible": {
+   "succès": 28.666666666666668,
+   "lave": 60.0,
+   "clé ramassée": 24.0,
+   "efficacité": 0.3999379563845066,
+   "n": 150
+  },
+  "incontournable": {
+   "succès": 4.0,
+   "lave": 26.0,
+   "clé ramassée": 67.33333333333333,
+   "efficacité": 0.3436539306104523,
+   "n": 150
+  },
+  "ouverte": {
+   "succès": 14.666666666666666,
+   "lave": 32.666666666666664,
+   "clé ramassée": 64.66666666666666,
+   "efficacité": 0.23758159859250672,
+   "n": 150
+  },
+  "detour": {
+   "succès": 8.666666666666668,
+   "lave": 28.000000000000004,
+   "clé ramassée": 48.0,
+   "efficacité": 0.24662233343374776,
+   "n": 150
+  }
+ },
+ "oracle": {
+  "accessible": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 15.333333333333332,
+   "efficacité": 1.0,
+   "n": 150
+  },
+  "incontournable": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 100.0,
+   "efficacité": 1.0,
+   "n": 150
+  },
+  "ouverte": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 26.666666666666668,
+   "efficacité": 1.0,
+   "n": 150
+  },
+  "detour": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 0.0,
+   "efficacité": 1.0,
+   "n": 150
+  }
+ },
+ "carte v3 seule": {
+  "accessible": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 15.333333333333332,
+   "efficacité": 1.0,
+   "n": 150
+  },
+  "incontournable": {
+   "succès": 70.66666666666667,
+   "lave": 4.0,
+   "clé ramassée": 73.33333333333333,
+   "efficacité": 0.6547048635707687,
+   "n": 150
+  },
+  "ouverte": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 25.333333333333336,
+   "efficacité": 1.0,
+   "n": 150
+  },
+  "detour": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 0.0,
+   "efficacité": 1.0,
+   "n": 150
+  }
+ },
+ "prérequis (carte v3 + conséquences)": {
+  "accessible": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 16.0,
+   "efficacité": 0.9966666666666667,
+   "n": 150
+  },
+  "incontournable": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 100.0,
+   "efficacité": 0.9989494949494949,
+   "n": 150
+  },
+  "ouverte": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 28.000000000000004,
+   "efficacité": 1.0,
+   "n": 150
+  },
+  "detour": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 0.0,
+   "efficacité": 0.9990476190476191,
+   "n": 150
+  }
+ },
+ "prérequis (carte v3), sans modèle des conséquences": {
+  "accessible": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 16.0,
+   "efficacité": 0.9966666666666667,
+   "n": 150
+  },
+  "incontournable": {
+   "succès": 72.0,
+   "lave": 4.0,
+   "clé ramassée": 74.66666666666667,
+   "efficacité": 0.6484328719494085,
+   "n": 150
+  },
+  "ouverte": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 28.000000000000004,
+   "efficacité": 1.0,
+   "n": 150
+  },
+  "detour": {
+   "succès": 100.0,
+   "lave": 0.0,
+   "clé ramassée": 0.0,
+   "efficacité": 0.9990476190476191,
+   "n": 150
+  }
+ }
+}

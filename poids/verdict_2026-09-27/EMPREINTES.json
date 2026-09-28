@@ -1,0 +1,23 @@
+{
+ "date_du_verdict": "2026-09-27T21:27:24+0200",
+ "résultat": "evaluation/resultat_final.json",
+ "empreinte_valeurs_module_de_coût": "91ca632a8bde97c86c3bc0fdb4e806622d609022f4c0ec8a3aae5a8c71558966",
+ "poids": {
+  "step4.pt": "7f887831c141b8ce9195806839e2163b746c43c086c13261e790295a45404d91",
+  "mental_map.pt": "2ca22d379c5025b35d8aab1c979580462d53548934053e48280caa868e8486f7"
+ },
+ "fichiers_sha256": {
+  "step4.pt": "33cd799c869aaf83fc150890c8a6aad19b7d05c34455d6f93de93364c5102007",
+  "mental_map.pt": "0e189a1e624147f68d1d639863bcc809d993d49abe4d4238572f91a4d6eb50b3"
+ },
+ "commandes": [
+  "python -m mini_iag.train_keydoor",
+  "python -m mini_iag.train_map (cell_weight=1, iterations=25, discount=0.95, 12000 itérations)"
+ ],
+ "environnement": {
+  "python": "3.11.15",
+  "torch": "2.14.0+cu130",
+  "numpy": "2.4.4",
+  "système": "Linux-6.18.44-fc-v37-x86_64-with-glibc2.39"
+ }
+}

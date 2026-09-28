@@ -994,7 +994,123 @@ Ce que le résultat montre vraiment : une architecture à la LeCun, entraînée 
 
 **Suite possible :** un nouveau test, pré-enregistré avec des tâches écrites par quelqu'un d'autre que l'auteur de l'agent, dans un monde plus riche (des règles nouvelles à découvrir en vivant, d'autres tailles de carte). Les tâches de ce test-ci sont maintenant « consommées » : les réutiliser ne prouverait plus rien.
 
+### Interagir avec elle : le bac à sable
+
+```bash
+python -m mini_iag.bac_a_sable            # --carte N pour une carte précise
+```
+
+Elle ne parle pas : elle ne connaît que sa grille et trois événements. On communique donc avec elle par les canaux de l'architecture de LeCun ([`bac_a_sable.py`](mini_iag/bac_a_sable.py)) :
+
+| Canal | Commande | Ce qu'on fait |
+|---|---|---|
+| **Configurateur** | `but clé porte objectif` | lui donner un but, même jamais reçu : c'est la façon de lui poser une question |
+| **Monde** | `mur 2 3`, `lave 4 1`, `vide 1 5`, `deplace 3 3` | modifier sa carte, même pendant qu'elle agit |
+| **Modèle du monde** | `imagine d d s` | « que se passe-t-il si tu fais ça ? » : elle répond avec son imagination, sans bouger |
+| **Carte mentale** | `pense` | ce qu'elle trouve prometteur, case par case |
+| **Décision** | `pas`, `go` | à chaque pas : ce qu'elle vise, la valeur de chaque direction, le plan imaginé, le danger prévu |
+
+Rien n'est appris ni enregistré : son cerveau n'est pas modifié.
+
+Deux choses qu'on y voit tout de suite :
+- **`but porte` sans avoir la clé : elle tourne en rond.** La carte mentale ne sait pas représenter « va d'abord chercher la clé » (limite 2 de la carte). Avec `but clé porte`, elle réussit.
+- **Son imagination se trompe parfois** : `imagine` contre un mur peut prédire un risque de lave de 20 à 30 %. C'est cohérent avec le diagnostic 12 : c'est la carte, pas l'imagination, qui décide.
+
 ---
+
+## Feuille de route v2 : vers une généralité limitée, démontrée
+
+Le verdict du 27 septembre a été relu de façon critique par Lelbi, dans une nouvelle feuille de route ([*Feuille de route : généralité limitée*](docs/feuille_de_route_generalite_limitee.md)). Ses constats principaux :
+- les sous-buts sont **fournis** par la tâche (clé, puis porte) : le test mesurait leur exécution, pas leur découverte ;
+- la carte mentale, qui décide, **n'apprend pas** pendant l'adaptation ;
+- la référence sans connaissances était **trop faible**, car une partie de ses modules ne pouvait rien apprendre ;
+- des connaissances fournies n'étaient **pas déclarées** ;
+- le workspace n'a **aucun rôle réel**.
+
+La conclusion visée devient : *dans une famille définie de mondes en grille, le même agent réutilise ses connaissances sur des configurations inédites (**A**), découvre des étapes intermédiaires non fournies (**B**), et améliore son comportement face à une règle nouvelle (**C**)*, sur des épreuves réservées, avec plusieurs entraînements indépendants. Ce n'est ni une IAG au sens large, ni une conscience. « Mini-IAG » reste le nom du projet.
+
+Le verdict du 27 septembre est **conservé tel quel** comme résultat historique (`evaluation/`, `poids/verdict_2026-09-27/`). La suite se fait dans une batterie distincte.
+
+### Lot 1 : une référence reproductible
+
+- **Les poids exacts du verdict sont dans le dépôt** : [`poids/verdict_2026-09-27/`](poids/verdict_2026-09-27/) (1,3 Mo), avec leurs empreintes et la version de l'environnement ([`EMPREINTES.json`](poids/verdict_2026-09-27/EMPREINTES.json)). `python -m mini_iag.reproduire` vérifie les empreintes. `--installer` copie ces poids dans `checkpoints/`. `--reentrainer` réentraîne tout et compare (identique sur une même machine ; d'une machine à l'autre, on compare les comportements).
+- **Ce qui est fourni à l'agent est déclaré** : [`CONNAISSANCES_FOURNIES.md`](CONNAISSANCES_FOURNIES.md) (canaux, actions, étiquettes d'événements, reconnaissance programmée des événements, sous-buts fournis, forme de la carte mentale, un seul entraînement…).
+- **Deux témoins** ([`final_agent.py`](mini_iag/final_agent.py)) : une **copie figée** (aucune mise à jour pendant l'adaptation, pour isoler l'apport de l'adaptation), et une **référence repartant de zéro dont tous les modules sont entraînables** ([`scratch_learner.py`](mini_iag/scratch_learner.py)). Cette dernière joue les épisodes d'adaptation, puis réentraîne tous ses modules sur cette seule expérience, avec la même procédure que l'agent : elle mesure le bénéfice des acquis antérieurs. Ses budgets sont rapportés séparément (`budget()`).
+- **Diagnostic 14** ([`diagnostics/14_iag_reference/`](diagnostics/14_iag_reference/)) : la version du verdict et ses témoins sur le matériel de développement, avec un **journal de chaque épisode** (actions, événements, issue, durée : 6 900 épisodes dans `reference_episodes.json.gz`).
+
+| Agent (150 cartes par tâche) | Standard : objectif / clé / objectif puis clé | Murs nombreux : idem | Glace (sans adaptation) : objectif / clé |
+|---|---|---|---|
+| Verdict (carte v2 + imagination) | 99,3 / 100 / 88,7 % | 100 / 100 / 94,7 % | 92 / 90 % (lave 4-6 %) |
+| Carte seule | 99,3 / 100 / 90 % | 99,3 / 100 / 95,3 % | 87,3 / 91,3 % |
+| Sans workspace | 99,3 / 100 / 88,7 % | 100 / 100 / 94,7 % | 92 / 90 % |
+| Sans carte (critique d'actions) | 75,3 / 66 / 45,3 % | 66 / 67,3 / 41,3 % | 70,7 / 68,7 % |
+| Aléatoire | 25,3 / 14 / 6,7 % | 33,3 / 41,3 / 8,7 % | 24 / 26 % |
+| Oracle | 100 % partout | 100 % partout | — (il ignore la glace) |
+
+Ce que cette référence établit :
+1. **Le workspace ne change strictement rien** (mêmes résultats au dixième près, carte par carte). C'est confirmé : il est décoratif, et il est déclaré comme tel.
+2. **L'imagination non plus** : la carte seule fait pareil, à 1 ou 2 points près.
+3. **La glace, telle qu'elle est, ne peut pas servir d'épreuve d'adaptation.** Sans aucune adaptation, l'agent réussit déjà 90-92 % dans le monde glacé : sa carte ignore la glace, et glisser est rarement grave. Un gain de 15 points (seuil proposé pour C) est impossible à partir de là. Le lot 4 devra utiliser une règle nouvelle qui met vraiment l'agent en échec.
+
+### Lot 2 : ne donner que le but final
+
+Nouvelles cartes de développement ([`situations.py`](mini_iag/environment/situations.py)), où l'on ne demande **que l'objectif**. Chaque carte est vérifiée par une recherche exacte (l'oracle, réservé au diagnostic), et les positions et l'orientation du mur changent à chaque carte :
+
+| Situation | Décision attendue |
+|---|---|
+| accessible | aller directement au but |
+| incontournable | l'objectif est derrière une porte fermée : prendre la clé, puis passer |
+| ouverte | le passage est déjà ouvert, une clé traîne : l'ignorer |
+| detour | une porte ferme le raccourci, mais un détour sans clé est plus court : le prendre |
+
+L'agent du verdict n'a pas été conçu pour ça : sa tâche ne lui dit plus d'aller chercher la clé.
+
+### Lot 3 : découvrir les prérequis
+
+**La planification par événements** ([`event_planner.py`](mini_iag/planning/event_planner.py), [`prerequisite_agent.py`](mini_iag/prerequisite_agent.py)). Avant d'agir, l'agent imagine des suites courtes d'événements qui finissent par le but (`[objectif]`, `[clé, objectif]`, `[porte, objectif]`, …) et estime leur coût avec ses modèles appris :
+- la **carte mentale** donne la distance jusqu'au prochain événement, ou « inatteignable » ;
+- un nouveau **modèle des conséquences** ([`effect_model.py`](mini_iag/modules/effect_model.py)) imagine le monde **après** cet événement. Il apprend sur l'expérience du marcheur au hasard ce que change l'arrivée sur une case. Sur les cartes de contrôle, il prédit exactement l'observation suivante dans 100 % des cas, y compris après une clé ramassée (1 135 cas) et une porte ouverte (189 cas), et aussi quand on lui demande « et si j'arrivais directement sur la clé ? » ;
+- la carte mentale, recalculée sur ce monde imaginé, dit ce qui est devenu atteignable.
+
+Il vise le premier événement de la suite la plus courte. **Aucune règle « si porte, alors clé » n'est écrite** : la clé devient un sous-but parce que le modèle a appris qu'après elle, le monde change.
+
+**Deux corrections trouvées en chemin :**
+1. **Une porte paraissait ouverte ou fermée selon l'endroit où se trouvait l'agent.** La carte mentale v2 calculait les propriétés des cases avec le canal de l'agent : une même porte était « bloquante à 1,00 » vue d'une case, et « à 0,00 » vue de la case voisine. L'agent oscillait alors entre deux plans. La **carte v3** (`python -m mini_iag.train_map --version 3`) juge chaque case **sans** le canal de l'agent. C'est un a priori, déclaré : ce qu'est une case ne dépend pas de l'endroit où l'on se trouve. Résultat : blocage 1,00 sur tous les murs et toutes les portes fermées, 0,00 partout ailleurs.
+2. **Ce qu'il constate l'emporte sur ce qu'il croit** : quand une action ne change rien, la case visée est notée « bloquante dans cette situation » (avec ou sans la clé) pour le reste de l'épisode, et la carte en tient compte.
+
+#### Diagnostic 15 : les quatre situations
+
+**Dossier :** [`diagnostics/15_iag_prerequisites/`](diagnostics/15_iag_prerequisites/). 150 cartes par situation, **seul l'objectif est demandé**.
+
+| Agent | accessible | incontournable | ouverte | detour |
+|---|---|---|---|---|
+| Oracle | 100 % | 100 % (clé 100 %) | 100 % | 100 % (clé 0 %) |
+| **Prérequis (carte v3 + conséquences)** | **100 %** | **100 %** (clé 100 %) | **100 %** | **100 %** (clé 0 %) |
+| Prérequis, **sans** modèle des conséquences | 100 % | 72 % | 100 % | 100 % |
+| Carte v3 seule | 100 % | 70,7 % | 100 % | 100 % |
+| Verdict (carte v2 + imagination) | 100 % | 60 % | 95,3 % | 90,7 % |
+| Sans carte (critique d'actions) | 87,3 % | 43,3 % | 66 % | 56 % |
+| Aléatoire | 28,7 % | 4 % | 14,7 % | 8,7 % |
+
+Efficacité de l'agent à prérequis (plus court chemin ÷ pas utilisés) : 0,997 à 1,00. Il ramasse la clé exactement comme l'oracle : toujours quand elle est indispensable, jamais dans le détour, et seulement quand elle est sur le chemin dans les autres cas (16 % et 28 %, contre 15 % et 27 % pour l'oracle).
+
+**Ce qu'on apprend :**
+1. **Il découvre les prérequis sur ces cartes** : 100 % dans les quatre situations, sans qu'aucune séquence de sous-buts ne lui soit donnée.
+2. **C'est le modèle des conséquences qui l'explique.** Sans lui, avec le même planificateur et la même carte, la porte incontournable tombe à 72 % : il ne réussit que quand il ramasse la clé par hasard en errant. La feuille de route le demandait : « si les performances sont identiques, ne pas conclure que le modèle du monde explique la réussite ». Ici, elles ne le sont pas.
+3. **Pas de régression** sur les tâches à sous-buts fournis : 99,3 / 100 / 87,3 % sur les cartes standard, 100 / 100 / 94,7 % sur les cartes à murs nombreux.
+
+**Limites :**
+- Ces cartes viennent de **mon** générateur, et les réglages ont été choisis dessus : c'est du développement, pas une preuve. L'épreuve B réservée devra venir de quelqu'un d'autre (lot 5).
+- Ce qui est fourni : la liste des événements possibles, la profondeur de recherche (3 événements), l'idée qu'un événement peut changer le monde, et l'a priori « une case ne dépend pas de ma position » (ajoutés à [`CONNAISSANCES_FOURNIES.md`](CONNAISSANCES_FOURNIES.md)).
+- **Un piège n'est pas résolu** : dans « objectif puis clé », l'agent ramasse parfois la clé en chemin vers l'objectif, avant qu'on la lui demande, et échoue (87 %). Éviter de consommer une ressource dont on aura besoin plus tard, c'est l'inverse d'un prérequis, et il ne sait pas encore le faire.
+- Le modèle des conséquences imagine l'arrivée directe sur une case, sans ce qui se passe **en chemin**.
+
+```bash
+python -m mini_iag.reproduire --installer-dev       # ou : train_map --version 3 et train_effects (~35 min)
+python diagnostics/15_iag_prerequisites/prerequisites_check.py     # ~40 minutes
+python -m mini_iag.bac_a_sable                      # puis : situation incontournable, go
+```
+
 
 ## Feuille de route
 
@@ -1015,6 +1131,11 @@ Ce que le résultat montre vraiment : une architecture à la LeCun, entraînée 
 - [x] **Carte mentale** (diagnostic 12) : valeurs propagées sur toutes les cases (Value Iteration Network appris par Q-learning), puis auto-supervision des cases (v2). Test blanc réussi (0,89 et 0,95), au-delà de 10 pas 5 → 90-96 %
 - [x] **Étape 5, préparation** : valeurs verrouillées, référence sans connaissances, passage du test (une seule fois), répétition à blanc sur matériel public (diagnostic 13 : 5 règles sur 5)
 - [ ] Une carte mentale qui apprend en vivant
+- [x] **Feuille de route v2, lot 1** : poids du verdict dans le dépôt, connaissances fournies déclarées, témoins, référence journalisée
+- [x] **Lot 2** : quatre situations de prérequis, seul le but final est demandé
+- [x] **Lot 3** (en partie) : planification par événements et modèle des conséquences, carte v3 ; 100 % dans les quatre situations de développement
+- [ ] **Lot 4** : adaptation à une règle nouvelle qui met vraiment l'agent en échec (la glace ne le fait pas)
+- [ ] **Lot 5** : batterie réservée A B C préparée par Lelbi, 5 entraînements indépendants, intervalles à 95 %
 - [x] **Mini-IAG, étape 5** : test final passé une fois le 27 septembre 2026. **Verdict : mini-IAG, oui** (5 règles sur 5), avec ses limites écrites
 - [ ] **Un second test**, pré-enregistré, avec des tâches écrites par quelqu'un d'autre et des règles nouvelles à découvrir en vivant
 - [ ] **Module social** : remplacer la phrase fixe « l'utilisateur ne m'a pas parlé » (fausse juste après un message) par un contenu qui reflète le temps écoulé depuis le dernier message
@@ -1143,6 +1264,11 @@ Ce que le résultat montre vraiment : une architecture à la LeCun, entraînée 
 │   ├── train_keydoor.py         # étape 4a : python -m mini_iag.train_keydoor
 │   ├── train_map.py             # carte mentale : python -m mini_iag.train_map
 │   ├── final_agent.py           # l'agent du test final (valeurs verrouillées) et sa référence
+│   ├── bac_a_sable.py           # interagir avec elle : python -m mini_iag.bac_a_sable
+│   ├── reproduire.py            # vérifier / installer / réentraîner les poids du verdict
+│   ├── scratch_learner.py       # référence repartant de zéro, tous modules entraînables
+│   ├── prerequisite_agent.py    # agent qui découvre ses sous-buts (lot 3)
+│   ├── train_effects.py         # modèle des conséquences : python -m mini_iag.train_effects
 │   ├── live.py                  # étape 4b : python -m mini_iag.live (la vie continue)
 │   ├── life/
 │   │   ├── life.py              # Life (boucle de vie, sauvegarde, reprise)
@@ -1177,6 +1303,7 @@ Ce que le résultat montre vraiment : une architecture à la LeCun, entraînée 
 │       ├── critic.py            # Critic (valeur apprise dans l'imagination, abandonnée)
 │       ├── action_critic.py     # ActionCritic (Q-learning hors ligne, planification longue)
 │       ├── mental_map.py        # MentalMap (carte mentale : valeurs propagées sur toutes les cases)
+│       ├── effect_model.py      # EffectModel (le monde après l'arrivée sur une case)
 │       └── vector_memory.py     # VectorMemory (base vectorielle)
 └── psyche/                      # Prototype comportemental
     ├── __init__.py

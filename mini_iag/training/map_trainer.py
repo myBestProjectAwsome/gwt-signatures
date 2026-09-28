@@ -27,13 +27,13 @@ from ..modules.mental_map import TARGETS
 
 class MapTrainer:
     def __init__(self, mental_map, lr=1e-3, iters=15000, batch_size=256, ema=0.995, seed=0,
-                 relative=False, cell_weight=0.0):
+                 relative=False, cell_weight=0.0, focal=0.0):
         self.map = mental_map
         self.target = copy.deepcopy(mental_map)
         for p in self.target.parameters():
             p.requires_grad = False
         self.iters, self.batch_size, self.ema = iters, batch_size, ema
-        self.relative, self.cell_weight = relative, cell_weight
+        self.relative, self.cell_weight, self.focal = relative, cell_weight, focal
         self.opt = torch.optim.Adam(mental_map.parameters(), lr=lr)
         self.gen = torch.Generator().manual_seed(seed)
         self.log = []
@@ -84,7 +84,14 @@ class MapTrainer:
         at = lambda m: (m * there[:, None]).sum((-1, -2))                     # valeur à la case d'arrivée
         reward = e[:, [EVENT_ORDER.index(t) for t in TARGETS]]
         lava = e[:, EVENT_ORDER.index("lava")]
-        bce = F.binary_cross_entropy
+        def bce(p, y, reduction="mean"):
+            """Entropie croisée, éventuellement « focale » : les cas que la carte se trompe
+            (souvent les cas rares, comme une porte fermée) pèsent plus (Lin et al., 2017)."""
+            loss = F.binary_cross_entropy(p, y, reduction="none")
+            if self.focal > 0:
+                pt = torch.where(y > 0.5, p, 1 - p)
+                loss = loss * (1 - pt) ** self.focal
+            return loss if reduction == "none" else loss.mean()
         w = moved[:, None]
         loss_r = (bce(at(r).clamp(1e-5, 1 - 1e-5), reward, reduction="none") * w).sum() / w.sum().clamp_min(1) / 3
         loss_d = (bce(at(d)[:, 0].clamp(1e-5, 1 - 1e-5), lava, reduction="none") * moved).sum() / moved.sum().clamp_min(1)

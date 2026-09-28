@@ -22,20 +22,21 @@ from .training import MapTrainer
 
 MAP_PATH = Path("checkpoints/mental_map.pt")
 MAP_V1_PATH = Path("checkpoints/mental_map_v1.pt")      # version 1 (Bellman seul), pour comparaison
+MAP_V3_PATH = Path("checkpoints/mental_map_v3.pt")      # version 3 : cases jugées sans le canal de l'agent
 PARAMS = {"iterations": 25, "discount": 0.95}
 
 
-def train_map(out=MAP_PATH, iters=12000, verbose=True, cell_weight=1.0, **params):
+def train_map(out=MAP_PATH, iters=12000, verbose=True, cell_weight=1.0, focal=0.0, **params):
     torch.manual_seed(0)
     cfg = Config.keydoor()
     params = {**PARAMS, **params}
     t0 = time.time()
     data = collect_kd(cfg, n_maps=3000, seed=TRAIN_SEED)
     mental_map = MentalMap(cfg, **params)
-    log = MapTrainer(mental_map, iters=iters, cell_weight=cell_weight).fit(data, verbose=verbose)
+    log = MapTrainer(mental_map, iters=iters, cell_weight=cell_weight, focal=focal).fit(data, verbose=verbose)
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"map": mental_map.state_dict(), "params": params, "cell_weight": cell_weight,
+    torch.save({"map": mental_map.state_dict(), "params": params, "cell_weight": cell_weight, "focal": focal,
                 "log": log}, out)
     if verbose:
         print(f"Terminé en {time.time() - t0:.0f} s. Sauvegardé dans {out}")
@@ -43,4 +44,15 @@ def train_map(out=MAP_PATH, iters=12000, verbose=True, cell_weight=1.0, **params
 
 
 if __name__ == "__main__":
-    train_map()
+    import argparse
+    p = argparse.ArgumentParser(prog="python -m mini_iag.train_map")
+    p.add_argument("--version", type=int, default=2, choices=(1, 2, 3),
+                   help="1 : Bellman seul ; 2 : + auto-supervision des cases (verdict) ; "
+                        "3 : + cases jugées sans le canal de l'agent (lots 2-3)")
+    v = p.parse_args().version
+    if v == 1:
+        train_map(MAP_V1_PATH, cell_weight=0.0)
+    elif v == 2:
+        train_map()
+    else:
+        train_map(MAP_V3_PATH, self_blind=True)

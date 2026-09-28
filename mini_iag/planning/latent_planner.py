@@ -71,7 +71,8 @@ class LatentPlanner:
         if uses_obs and obs is not None and getattr(self.cost, "target", None) and cfg.map_weight > 0:
             # carte mentale : valeur de chaque première action, lue sur la carte de toutes
             # les cases ; normalisée par la meilleure (même poids à 3 pas qu'à 20 pas)
-            q = self.critic.q(torch.as_tensor(obs)[None], self.cost.target)[0]
+            q = self.critic.q(torch.as_tensor(obs)[None], self.cost.target,
+                              blocked=getattr(self, "blocked", None))[0]
             if q.max() > 1e-4:
                 scores = scores - cfg.map_weight * self.cost.w_success * (q / q.max())[P[:, 0]]
         elif self.critic is not None and not uses_obs and getattr(cfg, "critic_weight", 0) > 0 \
