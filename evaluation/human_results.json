@@ -1,0 +1,224 @@
+{
+ "H1": [
+  {
+   "success": true,
+   "steps": 8,
+   "optimal": 3,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 6,
+   "optimal": 5,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 8,
+   "optimal": 8,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 11,
+   "optimal": 10,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 14,
+   "optimal": 10,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 5,
+   "optimal": 5,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 6,
+   "optimal": 6,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 7,
+   "optimal": 7,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 9,
+   "optimal": 9,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 6,
+   "optimal": 6,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 6,
+   "optimal": 6,
+   "lava": false
+  },
+  {
+   "success": false,
+   "steps": 1,
+   "optimal": 7,
+   "lava": true
+  }
+ ],
+ "H2": [
+  {
+   "success": true,
+   "steps": 18,
+   "optimal": 10,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 11,
+   "optimal": 11,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 8,
+   "optimal": 8,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 4,
+   "optimal": 4,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 4,
+   "optimal": 4,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 16,
+   "optimal": 15,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 7,
+   "optimal": 7,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 6,
+   "optimal": 6,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 6,
+   "optimal": 6,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 9,
+   "optimal": 9,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 7,
+   "optimal": 7,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 5,
+   "optimal": 5,
+   "lava": false
+  }
+ ],
+ "H3": [
+  {
+   "success": true,
+   "steps": 9,
+   "optimal": 9,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 8,
+   "optimal": 8,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 7,
+   "optimal": 7,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 9,
+   "optimal": 9,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 7,
+   "optimal": 7,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 8,
+   "optimal": 8,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 7,
+   "optimal": 7,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 6,
+   "optimal": 6,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 7,
+   "optimal": 7,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 5,
+   "optimal": 5,
+   "lava": false
+  },
+  {
+   "success": true,
+   "steps": 10,
+   "optimal": 10,
+   "lava": false
+  },
+  {
+   "success": false,
+   "steps": 1,
+   "optimal": 12,
+   "lava": true
+  }
+ ]
+}

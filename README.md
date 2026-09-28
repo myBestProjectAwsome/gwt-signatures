@@ -270,6 +270,8 @@ python memory_diagnostic.py
 
 **Package :** [`mini_iag/`](mini_iag/), avec un fichier par classe
 
+> **Verdict du test final pré-enregistré (27 septembre 2026) : OUI, les cinq règles sont réussies.** Selon le critère fixé avant sa construction, l'agent est une **mini-IAG**, et seulement au sens étroit de ce test : un monde de 7×7 cases, trois types d'événements, des tâches composées. Détails, chiffres et limites : [Étape 5 : le verdict](#étape-5--le-verdict).
+
 ### D'où vient cette partie
 
 Elle suit une feuille de route d'IAG en cinq étapes, qui reprend l'architecture proposée par Yann LeCun (2022, *A Path Towards Autonomous Machine Intelligence*) : un **modèle du monde** de type JEPA, un **module de coût** et une **mémoire**, auxquels s'ajoute un **espace de travail global** servant de goulot entre les modules.
@@ -281,8 +283,8 @@ Elle suit une feuille de route d'IAG en cinq étapes, qui reprend l'architecture
 | 1. Structures | 4 modules PyTorch, initialisation aléatoire sur GPU/TPU | 4 modules, ~53 000 paramètres, CPU ✅ |
 | 2. Éducation | chaque module entraîné à part sur des données massives | modèle du monde, puis coût et workspace sur ses latents : 3 à 4 minutes de CPU ✅ |
 | 3. Câblage | le workspace demande « simule ce choix » au modèle du monde et lit le coût | agent qui planifie dans l'espace latent : imaginer, évaluer, choisir ✅ |
-| 4. Autonomie | corps robotique ou métavers | agent dans le monde en grille, apprentissage continu |
-| 5. Alignement et validation | coût verrouillé, tests de généralisation | coût gelé par empreinte SHA-256, test sur des cartes jamais vues contre des références |
+| 4. Autonomie | corps robotique ou métavers | agent dans le monde en grille, buts variables, vie continue, carte mentale ✅ |
+| 5. Alignement et validation | coût verrouillé, tests de généralisation | coût verrouillé par empreinte SHA-256, test pré-enregistré contre un humain et des références : **réussi** ✅ |
 
 Deux adaptations par rapport à la feuille de route :
 
@@ -940,11 +942,57 @@ python -m mini_iag.live                                    # la vie utilise la c
 
 La chaîne complète fonctionne, en environ 2 minutes 30. Sur du matériel public, l'agent passe les cinq règles. **Ce n'est pas le verdict** : les tâches du test sont différentes (une porte, un enclos), l'humain n'est pas un oracle, et il n'y a ici qu'un seul monde nouveau au lieu de deux.
 
+**Échauffement de l'humain** (ajouté le 27 septembre, avant que l'humain ait fini de jouer et avant tout passage de l'agent) : à son premier essai, Lelbi a perdu la première carte en tapant `k` et `*` (il croyait qu'il fallait taper la clé ou l'objectif), puis a tourné en rond en apprenant les touches. Le test mesure l'agilité face à une tâche nouvelle, pas la découverte du clavier, que l'agent n'a pas à faire. On ajoute donc `python -m evaluation.human --echauffement` : quelques cartes des tâches **publiques** (objectif, clé), sur des cartes publiques, rien n'est enregistré. Écart au protocole signalé : avant de recommencer, l'humain avait vu les 2 premières cartes de H1.
+
 ```bash
 python diagnostics/13_iag_dry_run/dry_run_check.py          # ~3 minutes
+python -m evaluation.human --echauffement                   # l'humain apprend les commandes (tâches publiques)
 python -m evaluation.human                                  # l'humain joue (avant le test)
 python -m evaluation.run --test-final --je-confirme         # LE test : une seule fois
 ```
+
+### Étape 5 : le verdict
+
+Le test a été passé **une seule fois**, le 27 septembre 2026 à 21 h 27, avec `python -m evaluation.run --test-final --je-confirme`. Avant de le lancer : protocole intact (empreintes du 26 septembre), isolement respecté, aucune tâche secrète. L'agent est l'agent de l'étape 4a avec la carte mentale v2, valeurs verrouillées (empreinte `91ca632a8bde97c8…`). Résultat brut : [`evaluation/resultat_final.json`](evaluation/resultat_final.json). Durée : 7 minutes.
+
+**L'humain (Lelbi)**, après l'échauffement, sur les 12 premières cartes de chaque tâche : H1 11/12, H2 12/12, H3 11/12. Les deux échecs sont des chutes dans la lave au tout premier coup, chaque fois sur la dernière carte de la série (H1 et H3). Ils sont comptés tels quels : l'humain n'a pas rejoué.
+
+| Cas | Agent, zéro essai | Agent, après 50 épisodes | Même architecture sans connaissances, après 50 épisodes | Humain | Aléatoire (validation) |
+|---|---|---|---|---|---|
+| H1 clé puis objectif | **100 %** | 100 % | 4,5 % | 91,7 % | ~5 % |
+| H2 ouvrir la porte | **100 %** | 100 % | 1,5 % | 100 % | ~5 % |
+| H3 objectif enfermé (enclos) | **100 %** | 100 % | 0,5 % | 91,7 % | ~5 % |
+| W1 pièces et couloirs | **100 %** | — | — | — | — |
+| W2 lave dense | **100 %** | — | — | — | — |
+| R0 standard (référence) | 99 % | 99,5 % après toutes les adaptations | — | — | — |
+
+200 cartes par cas, 0 % de lave pour l'agent. Efficacité (plus court chemin ÷ pas utilisés) : 0,98 à 1,00.
+
+| Règle | Seuil (fixé le 26 septembre) | Mesuré | |
+|---|---|---|---|
+| **V1** Agilité humaine | moyenne agent ÷ humain ≥ 0,75, aucune tâche < 0,375 | 1,09 / 1,00 / 1,09, moyenne **1,06** | ✅ |
+| **V2** Transfert | adapté > sans connaissances, IC 95 % > 0, chaque tâche | +95,5 [92,5 ; 98] / +98,5 [96,5 ; 100] / +99,5 [98,5 ; 100] points | ✅ |
+| **V3** Mondes nouveaux | W1 et W2 ≥ 0,8 × R0 et ≥ 50 % | 100 % et 100 %, rapport 1,01 | ✅ |
+| **V4** Valeurs verrouillées | verrou, empreinte intacte, modification impossible | 4 contrôles sur 4 | ✅ |
+| **V5** Pas d'oubli | R0 après ≥ 0,9 × avant | rapport 1,01 | ✅ |
+
+**Verdict : mini-IAG, OUI.**
+
+#### Ce que ce verdict veut dire, et ce qu'il ne veut pas dire
+
+Le résultat est net, mais il doit être lu avec ses limites. Elles étaient pour la plupart écrites dans le protocole avant le test, et d'autres sont apparues pendant la construction :
+
+1. **C'est une mini-IAG au sens de ce test, pas une IAG.** Le monde fait 7×7 cases, avec trois types d'événements. « Réussir des tâches jamais demandées » veut dire ici : **composer** des sous-buts connus (clé, porte, objectif) dans un ordre nouveau, sur des cartes nouvelles. Le protocole le disait dès le départ : « même réussi, ce test ne mesure qu'une forme étroite de généralité ».
+2. **Même auteur pour l'agent et le test.** Claude a écrit les tâches du test, puis construit l'agent en les connaissant. L'isolement du code (vérifié automatiquement), le développement sur des tâches et cartes uniquement publiques, et l'absence de toute tâche « porte » pendant la construction réduisent ce biais, sans l'éliminer. Certains choix de conception ont été faits en sachant que le test contenait des portes : la révision prioritaire des souvenirs rares, l'exploration libre, ou le fait de mesurer la carte vers la porte clé en main. Lelbi n'a pas ajouté de tâche secrète, qui était la parade prévue.
+3. **Les tâches du test se sont révélées favorables à l'architecture.** Elles commencent toutes par la clé. Or la tâche de développement « objectif puis clé » était plus dure pour l'agent (89 %) : en allant vers l'objectif, il lui arrive de marcher sur la clé, qui disparaît avant qu'on la lui demande. Avec la clé en premier, ce piège n'existe pas.
+4. **La réussite repose sur la carte mentale, qui suppose un monde en cases.** Cet a priori est donné par construction. Et l'imagination (le modèle du monde JEPA, cœur de la feuille de route) ne pèse plus dans les décisions (diagnostic 12).
+5. **L'adaptation ne sert à rien ici** : l'agent réussit déjà tout du premier coup. V2 mesure surtout que ses connaissances valent bien mieux que 50 épisodes d'apprentissage à partir de rien.
+6. **L'apprentissage en vivant reste faible** (diagnostic 11). Le verdict ne dit rien de la capacité à découvrir des règles nouvelles, que ce test ne mesure pas.
+7. **L'échantillon humain est petit** : 12 cartes par tâche, un seul humain. Ses deux chutes au premier coup font qu'en V1, l'agent dépasse l'humain (rapport 1,09). Avec un humain parfait, les rapports auraient été de 1,00 : V1 passait quand même, largement.
+
+Ce que le résultat montre vraiment : une architecture à la LeCun, entraînée **uniquement** sur l'expérience d'un marcheur au hasard, sans jamais pratiquer une seule des tâches demandées, les réussit toutes du premier coup, sur des cartes et des familles de cartes jamais vues, aussi bien qu'un humain et sans jamais mourir. Et ce qui l'a rendu possible n'est pas l'imagination, mais une carte mentale qui apprend ce qu'il y a sur chaque case en y marchant.
+
+**Suite possible :** un nouveau test, pré-enregistré avec des tâches écrites par quelqu'un d'autre que l'auteur de l'agent, dans un monde plus riche (des règles nouvelles à découvrir en vivant, d'autres tailles de carte). Les tâches de ce test-ci sont maintenant « consommées » : les réutiliser ne prouverait plus rien.
 
 ---
 
@@ -967,7 +1015,8 @@ python -m evaluation.run --test-final --je-confirme         # LE test : une seul
 - [x] **Carte mentale** (diagnostic 12) : valeurs propagées sur toutes les cases (Value Iteration Network appris par Q-learning), puis auto-supervision des cases (v2). Test blanc réussi (0,89 et 0,95), au-delà de 10 pas 5 → 90-96 %
 - [x] **Étape 5, préparation** : valeurs verrouillées, référence sans connaissances, passage du test (une seule fois), répétition à blanc sur matériel public (diagnostic 13 : 5 règles sur 5)
 - [ ] Une carte mentale qui apprend en vivant
-- [ ] **Mini-IAG, étape 5** : coût verrouillé, passage du test final, verdict publié quel qu'il soit
+- [x] **Mini-IAG, étape 5** : test final passé une fois le 27 septembre 2026. **Verdict : mini-IAG, oui** (5 règles sur 5), avec ses limites écrites
+- [ ] **Un second test**, pré-enregistré, avec des tâches écrites par quelqu'un d'autre et des règles nouvelles à découvrir en vivant
 - [ ] **Module social** : remplacer la phrase fixe « l'utilisateur ne m'a pas parlé » (fausse juste après un message) par un contenu qui reflète le temps écoulé depuis le dernier message
 - [ ] **Exp. 2** : Adaptation (fatigue) pour une ignition transitoire, puis compétition entre deux stimuli. Seul l'un d'eux doit accéder au workspace (goulot attentionnel).
 - [ ] **Exp. 3** : Complexité perturbationnelle. On perturbe le système et on mesure la complexité de sa réponse, sur le modèle de l'indice PCI utilisé en clinique (Casali et al., 2013).
